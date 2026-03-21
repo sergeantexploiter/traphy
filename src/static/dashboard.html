@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Traffic Coordinator — Live</title>
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				font-family: "Segoe UI", system-ui, sans-serif;
+				margin: 0;
+				padding: 1rem;
+				background: #1a1b26;
+				color: #c0caf5;
+				min-height: 100vh;
+			}
+			.header-row {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 1rem;
+				margin-bottom: 0.5rem;
+				flex-wrap: wrap;
+			}
+			.header-row h1 {
+				margin: 0;
+				font-size: 1.5rem;
+				color: #7aa2f7;
+			}
+			h1 {
+				margin: 0 0 0.5rem 0;
+				font-size: 1.5rem;
+				color: #7aa2f7;
+			}
+			.mode-toggle-wrap {
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+				font-size: 0.9rem;
+				color: #a9b1d6;
+			}
+			.cancel-phase-btn {
+				display: none;
+				align-items: center;
+				padding: 0.25rem 0.5rem;
+				font-size: 0.75rem;
+				font-weight: 600;
+				color: #f7768e;
+				background: #f7768e22;
+				border: 1px solid #f7768e;
+				border-radius: 4px;
+				cursor: pointer;
+				transition:
+					background 0.15s,
+					color 0.15s;
+			}
+			.cancel-phase-btn:hover {
+				background: #f7768e;
+				color: #1a1b26;
+			}
+			.cancel-phase-btn.visible {
+				display: inline-flex;
+			}
+			.status-indicator {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.35rem;
+				font-size: 0.8rem;
+				font-weight: 600;
+				padding: 0.2rem 0.5rem;
+				border-radius: 4px;
+			}
+			.status-indicator::before {
+				content: "";
+				width: 6px;
+				height: 6px;
+				border-radius: 50%;
+				flex-shrink: 0;
+			}
+			.status-indicator.idle {
+				color: #565f89;
+				background: #565f8933;
+			}
+			.status-indicator.idle::before {
+				background: #565f89;
+			}
+			.status-indicator.working {
+				color: #9ece6a;
+				background: #9ece6a33;
+			}
+			.status-indicator.working::before {
+				background: #9ece6a;
+				box-shadow: 0 0 6px #9ece6a;
+			}
+			.status-indicator.standby {
+				color: #e0af68;
+				background: #e0af6833;
+			}
+			.status-indicator.standby::before {
+				background: #e0af68;
+			}
+			.mode-toggle {
+				position: relative;
+				width: 44px;
+				height: 24px;
+				background: #414868;
+				border-radius: 12px;
+				cursor: pointer;
+				transition: background 0.2s;
+			}
+			.mode-toggle.manual {
+				background: #7aa2f7;
+			}
+			.mode-toggle::after {
+				content: "";
+				position: absolute;
+				top: 2px;
+				left: 2px;
+				width: 20px;
+				height: 20px;
+				background: #c0caf5;
+				border-radius: 50%;
+				transition: transform 0.2s;
+			}
+			.mode-toggle.manual::after {
+				transform: translateX(20px);
+			}
+			.meta {
+				font-size: 0.85rem;
+				color: #565f89;
+				margin-bottom: 1rem;
+			}
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+				gap: 1rem;
+				margin-bottom: 2rem;
+			}
+			.poles-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+				gap: 0.75rem;
+				margin-bottom: 2rem;
+			}
+			.pole {
+				background: #24283b;
+				border-radius: 8px;
+				padding: 0.75rem;
+				text-align: center;
+				border: 1px solid #414868;
+			}
+			.lamp-card,
+			.unit-card {
+				background: #24283b;
+				border-radius: 8px;
+				padding: 0.5rem 0.75rem;
+				text-align: center;
+				border: 1px solid #414868;
+			}
+			.unit-card .seq-lights {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 4px;
+			}
+			.pole-name,
+			.lamp-name,
+			.unit-name {
+				font-size: 0.7rem;
+				font-weight: 600;
+				margin-bottom: 0.35rem;
+				color: #a9b1d6;
+				text-transform: uppercase;
+				word-break: break-word;
+			}
+			.lights {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 4px;
+			}
+			.light {
+				width: 28px;
+				height: 28px;
+				border-radius: 50%;
+				border: 2px solid #414868;
+				transition:
+					box-shadow 0.2s,
+					background 0.2s;
+			}
+			.light.red.off {
+				background: #3b3f5c;
+			}
+			.light.red.on {
+				background: #f7768e;
+				box-shadow: 0 0 12px #f7768e;
+			}
+			.light.yellow.off {
+				background: #3b3f5c;
+			}
+			.light.yellow.on {
+				background: #e0af68;
+				box-shadow: 0 0 12px #e0af68;
+			}
+			.light.green.off {
+				background: #3b3f5c;
+			}
+			.light.green.on {
+				background: #9ece6a;
+				box-shadow: 0 0 12px #9ece6a;
+			}
+			.phase-panel {
+				background: #24283b;
+				border-radius: 8px;
+				padding: 1rem;
+				margin-bottom: 1rem;
+				border: 1px solid #414868;
+			}
+			.phase-panel h2 {
+				margin: 0 0 0.5rem 0;
+				font-size: 1rem;
+				color: #7aa2f7;
+			}
+			.phase-name {
+				font-weight: 600;
+				color: #9ece6a;
+				font-size: 1.1rem;
+			}
+			.phase-name.idle {
+				color: #565f89;
+			}
+			.phase-name.standby {
+				color: #e0af68;
+			}
+			.phase-name.in-phase {
+				color: #e0af68;
+			}
+			.counts {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 0.5rem 1rem;
+				font-size: 0.9rem;
+				margin-top: 0.5rem;
+			}
+			.count {
+				color: #a9b1d6;
+			}
+			.count span {
+				color: #7aa2f7;
+				font-weight: 600;
+			}
+			.status-badge {
+				display: inline-block;
+				padding: 0.2rem 0.5rem;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				margin-left: 0.5rem;
+			}
+			.status-badge.running {
+				background: #9ece6a33;
+				color: #9ece6a;
+			}
+			.status-badge.idle {
+				background: #565f8933;
+				color: #565f89;
+			}
+			.status-badge.standby {
+				background: #e0af6833;
+				color: #e0af68;
+			}
+			.updated {
+				font-size: 0.75rem;
+				color: #565f89;
+				margin-top: 0.5rem;
+			}
+			.error {
+				color: #f7768e;
+				font-size: 0.9rem;
+			}
+			.green-time,
+			.yellow-time {
+				margin-top: 0.5rem;
+				font-size: 1rem;
+				font-weight: 600;
+			}
+			.green-time {
+				color: #9ece6a;
+			}
+			.yellow-time {
+				color: #e0af68;
+			}
+			.sequences {
+				display: grid;
+				grid-template-columns: repeat(4, 1fr);
+				gap: 1rem;
+				margin-bottom: 1.5rem;
+			}
+			.seq-card {
+				background: #24283b;
+				border-radius: 8px;
+				padding: 1rem;
+				border: 1px solid #414868;
+			}
+			.seq-card.active {
+				border-color: #9ece6a;
+				box-shadow: 0 0 0 1px #9ece6a;
+			}
+			.seq-card.clickable {
+				cursor: pointer;
+			}
+			.seq-card.clickable:hover {
+				border-color: #7aa2f7;
+				background: #2d3044;
+			}
+			.seq-card h3 {
+				margin: 0 0 0.5rem 0;
+				font-size: 0.85rem;
+				color: #a9b1d6;
+			}
+			.seq-count {
+				margin-top: 0.5rem;
+				font-size: 0.75rem;
+				color: #7982a9;
+			}
+			.seq-lights {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 4px;
+				margin-top: 0.25rem;
+			}
+			.seq-lights .light {
+				width: 32px;
+				height: 32px;
+			}
+			.seq-phase-dot {
+				width: 40px;
+				height: 40px;
+				border-radius: 50%;
+				margin-top: 0.25rem;
+			}
+			.seq-phase-dot.off {
+				background: #3b4261;
+				box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+			}
+			.seq-phase-dot.green {
+				background: #9ece6a;
+				box-shadow: 0 0 12px #9ece6a;
+			}
+			.seq-phase-dot.yellow {
+				background: #e0af68;
+				box-shadow: 0 0 12px #e0af68;
+			}
+			.seq-phase-dot.red {
+				background: #f7768e;
+				box-shadow: 0 0 12px #f7768e;
+			}
+			.dashboard-layout {
+				display: flex;
+				gap: 1.5rem;
+				align-items: flex-start;
+				max-width: 100%;
+			}
+			.dashboard-left {
+				flex: 1 1 55%;
+				min-width: 0;
+			}
+			.dashboard-right {
+				flex: 0 0 45%;
+				width: 45%;
+				position: sticky;
+				top: 1rem;
+				max-height: calc(100vh - 2rem);
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+			}
+			.dashboard-right h2 {
+				font-size: 1rem;
+				color: #7aa2f7;
+				margin: 0 0 0.75rem 0;
+				flex-shrink: 0;
+			}
+			.camera-streams {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 1rem;
+				overflow-y: auto;
+				min-height: 0;
+			}
+			.camera-card.full-width {
+				grid-column: 1 / -1;
+			}
+			.camera-card {
+				background: #24283b;
+				border-radius: 8px;
+				padding: 0.75rem;
+				border: 1px solid #414868;
+				overflow: hidden;
+				display: flex;
+				flex-direction: column;
+				min-height: 0;
+			}
+			.camera-card h3 {
+				margin: 0 0 0.5rem 0;
+				font-size: 0.9rem;
+				color: #a9b1d6;
+				flex-shrink: 0;
+			}
+			.camera-stream {
+				background: #000;
+				border-radius: 4px;
+				aspect-ratio: 16/9;
+				min-height: 0;
+				flex: 1;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				overflow: hidden;
+			}
+			.camera-stream img {
+				max-width: 100%;
+				max-height: 100%;
+				width: auto;
+				height: auto;
+				object-fit: contain;
+			}
+			.camera-stream.unavailable {
+				color: #565f89;
+				font-size: 0.85rem;
+			}
+			body.manual-mode .camera-card[data-phase] {
+				cursor: pointer;
+			}
+			body.manual-mode .camera-card[data-phase]:hover {
+				border-color: #7aa2f7;
+				background: #2d3044;
+			}
+			.camera-card.phase-green {
+				border-color: #9ece6a;
+			}
+			.camera-card.phase-yellow {
+				border-color: #e0af68;
+			}
+			.camera-card.phase-red {
+				border-color: #f7768e;
+			}
+			.camera-card.phase-off {
+				border-color: #414868;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="dashboard-layout">
+			<div class="dashboard-left">
+				<div class="header-row">
+					<h1>Traffic Coordinator — Live</h1>
+					<div class="mode-toggle-wrap">
+						<span id="status-indicator" class="status-indicator idle" title="System status">Idle</span>
+						<button type="button" id="cancel-phase-btn" class="cancel-phase-btn" title="Cancel current phase and set all lights to red" aria-label="Cancel phase">Cancel Phase</button>
+						<span id="mode-label">Auto</span>
+						<div id="mode-toggle" class="mode-toggle" title="Switch to Manual to trigger sequences by clicking cards" aria-label="Control mode"></div>
+					</div>
+				</div>
+				<p class="meta">Dashboard updates every second. Open this page while the coordinator is running.</p>
+
+				<div class="phase-panel">
+					<h2>Current state</h2>
+					<p>
+						<span id="phase-name" class="phase-name idle">—</span>
+						<span id="status-badge" class="status-badge idle">idle</span>
+					</p>
+					<p id="phase-time" class="green-time" style="display: none"></p>
+					<div class="counts" id="counts"></div>
+					<p class="updated" id="updated">—</p>
+				</div>
+
+				<div class="sequences" id="sequences"></div>
+
+				<h2 style="font-size: 1rem; color: #7aa2f7; margin-bottom: 0.5rem">Traffic light units</h2>
+				<div class="poles-grid" id="poles"></div>
+				<p id="error" class="error" style="display: none"></p>
+			</div>
+			<div class="dashboard-right">
+				<h2>Camera streams</h2>
+				<div id="camera-streams" class="camera-streams"></div>
+			</div>
+		</div>
+
+		<script>
+			const polesEl = document.getElementById("poles");
+			const sequencesEl = document.getElementById("sequences");
+			const phaseNameEl = document.getElementById("phase-name");
+			const statusBadgeEl = document.getElementById("status-badge");
+			const phaseTimeEl = document.getElementById("phase-time");
+			const countsEl = document.getElementById("counts");
+			const updatedEl = document.getElementById("updated");
+			const errorEl = document.getElementById("error");
+			const cameraStreamsEl = document.getElementById("camera-streams");
+
+			function escapeHtml(s) {
+				const div = document.createElement("div");
+				div.textContent = s;
+				return div.innerHTML;
+			}
+
+			function loadCameras() {
+				fetch("/api/config")
+					.then((r) => (r.ok ? r.json() : {}))
+					.catch(() => ({}))
+					.then((config) => {
+						const base = config && config.camera_app_base_url ? config.camera_app_base_url.trim() : "";
+						if (!base) {
+							cameraStreamsEl.innerHTML = '<p class="meta">Camera app not configured</p>';
+							return null;
+						}
+						return fetch(base + "/api/cameras")
+							.then((r) => (r.ok ? r.json() : null))
+							.catch(() => null);
+					})
+					.then((data) => {
+						if (!data || !data.cameras || !data.cameras.length) {
+							cameraStreamsEl.innerHTML = '<p class="meta">Camera streams unavailable — start the camera app to view streams.</p>';
+							return;
+						}
+						const cameras = data.cameras;
+						const maxImmediate = 4;
+						function hasSequence(cam) {
+							const s = cam.sequence;
+							return s != null && s !== "" && String(s).toLowerCase() !== "none";
+						}
+						cameraStreamsEl.innerHTML = cameras
+							.map((cam, i) => {
+								const label = cam.label || cam.id;
+								const fullClass = "camera-card" + (cam.full_width ? " full-width" : "");
+								const hasSeq = hasSequence(cam);
+								const dataPhase = hasSeq ? ' data-phase="' + escapeHtml(cam.sequence) + '"' : "";
+								const titleTrigger = hasSeq ? ' title="Manual mode: click to trigger ' + escapeHtml(cam.sequence) + '"' : "";
+								if (cam.stream_url) {
+									var srcAttr = i < maxImmediate ? ' src="' + escapeHtml(cam.stream_url) + '"' : ' data-src="' + escapeHtml(cam.stream_url) + '" data-src-delay="' + (i - maxImmediate) + '"';
+									return '<div class="' + fullClass + '"' + dataPhase + titleTrigger + "><h3>" + escapeHtml(label) + '</h3><div class="camera-stream"><img' + srcAttr + ' alt="' + escapeHtml(label) + '"></div></div>';
+								}
+								return '<div class="' + fullClass + '"' + dataPhase + titleTrigger + "><h3>" + escapeHtml(label) + '</h3><div class="camera-stream unavailable">No stream</div></div>';
+							})
+							.join("");
+						var delayed = cameraStreamsEl.querySelectorAll("img[data-src]");
+						delayed.forEach(function (img, idx) {
+							var delay = (parseInt(img.getAttribute("data-src-delay"), 10) + 1) * 400;
+							setTimeout(function () {
+								img.src = img.getAttribute("data-src");
+								img.removeAttribute("data-src");
+								img.removeAttribute("data-src-delay");
+							}, delay);
+						});
+					})
+					.catch(() => {
+						cameraStreamsEl.innerHTML = '<p class="meta">Camera streams unavailable — start the camera app to view streams.</p>';
+					});
+			}
+
+			function lampMap(lamps) {
+				const m = {};
+				(lamps || []).forEach((l) => {
+					m[l.id] = l;
+				});
+				return m;
+			}
+
+			function renderSequences(state) {
+				const phases = state.phases || {};
+				const lamps = lampMap(state.lamps || []);
+				const controlMode = (state.control_mode || "auto").toLowerCase();
+				const isManual = controlMode === "manual";
+				const inStandby = state.standby_mode;
+				// Order matches intersection: a (seq3), c (seq2), f (seq1)
+				const seqOrder = ["seq3", "seq2", "seq1"];
+				const currentPhase = state.current_phase;
+
+				const triggerCountSnapshot = state.current_phase_trigger_count != null ? state.current_phase_trigger_count : 0;
+				let html = seqOrder
+					.filter((k) => phases[k])
+					.map((seqKey) => {
+						const phase = phases[seqKey];
+						const greenKeys = phase.green_keys || [];
+						const yellowKeys = phase.yellow_keys || [];
+						const redKeys = phase.red_keys || [];
+						const triggerKeys = phase.trigger_keys || [];
+						const active = currentPhase === seqKey;
+						const count = active ? triggerCountSnapshot : triggerKeys.reduce((sum, key) => sum + ((state.data && state.data[key] && state.data[key].value) || 0), 0);
+						// Use phase_sub_state when this sequence is active (green/yellow/red); else off.
+						let phaseColor = "off";
+						if (active && !inStandby) {
+							const sub = (state.phase_sub_state || "").toLowerCase();
+							if (sub === "green") phaseColor = "green";
+							else if (sub === "yellow") phaseColor = "yellow";
+							else if (sub === "red") phaseColor = "red";
+							else {
+								// Fallback: infer from lamp state
+								const anyGreenOn = greenKeys.some((id) => lamps[id] && lamps[id].color === "green");
+								const anyYellowOn = yellowKeys.some((id) => lamps[id] && lamps[id].color === "yellow");
+								const anyRedOn = redKeys.some((id) => lamps[id] && lamps[id].color === "red_active");
+								if (anyGreenOn) phaseColor = "green";
+								else if (anyYellowOn) phaseColor = "yellow";
+								else if (anyRedOn) phaseColor = "red";
+							}
+						}
+						const shortName = seqKey === "seq1" ? "Seq 1" : seqKey === "seq2" ? "Seq 2" : "Seq 3";
+						const clickableClass = isManual ? " clickable" : "";
+						const titleAttr = isManual ? ' title="Click to trigger this sequence"' : "";
+						return `
+          <div class="seq-card ${active ? "active" : ""}${clickableClass}" data-phase="${escapeHtml(seqKey)}"${titleAttr}>
+            <h3>${shortName}</h3>
+            <div class="seq-phase-dot ${phaseColor}" title="${phaseColor === "off" ? "Idle" : phaseColor}"></div>
+            <div class="seq-count">Count: ${count}${active ? " (phase green)" : ""}</div>
+          </div>
+        `;
+					})
+					.join("");
+
+				const pedGreen = lamps["pedestrian_green"];
+				const pedGreenOn = inStandby ? false : pedGreen && pedGreen.color === "green";
+				const pedRedOn = inStandby ? false : !pedGreenOn;
+				html += `
+        <div class="seq-card">
+          <h3>Pedestrian</h3>
+          <div class="seq-lights">
+            <div class="light red ${pedRedOn ? "on" : "off"}" title="Red"></div>
+            <div class="light green ${pedGreenOn ? "on" : "off"}" title="Green"></div>
+          </div>
+        </div>
+      `;
+				sequencesEl.innerHTML = html;
+			}
+
+			function renderPhaseTime(state) {
+				const sub = state.phase_sub_state;
+				if (!sub || sub === "red") {
+					phaseTimeEl.style.display = "none";
+					return;
+				}
+				phaseTimeEl.style.display = "block";
+				const now = Date.now() / 1000;
+				if (sub === "green") {
+					const elapsed = Math.max(0, now - (state.phase_start_time || 0));
+					const planned = state.assigned_green_duration || 0;
+					phaseTimeEl.textContent = `Green time: ${elapsed.toFixed(1)}s / ${planned.toFixed(1)}s`;
+					phaseTimeEl.className = "green-time";
+				} else if (sub === "yellow") {
+					const elapsed = Math.max(0, now - (state.yellow_start_time || 0));
+					const planned = state.yellow_duration || 3;
+					phaseTimeEl.textContent = `Yellow time: ${elapsed.toFixed(1)}s / ${planned.toFixed(1)}s`;
+					phaseTimeEl.className = "yellow-time";
+				} else {
+					phaseTimeEl.style.display = "none";
+				}
+			}
+
+			function renderPoles(lamps) {
+				if (!lamps || lamps.length === 0) {
+					polesEl.innerHTML = '<p class="meta">No lamp state</p>';
+					return;
+				}
+				const byId = lampMap(lamps);
+				// Group by traffic light unit: strip _red, _yellow, _green from lamp id
+				const unitIds = [...new Set(lamps.map((l) => l.id.replace(/_red$|_yellow$|_green$/, "")))].sort((a, b) => (a === "pedestrian" ? 1 : b === "pedestrian" ? -1 : a.localeCompare(b)));
+				polesEl.innerHTML = unitIds
+					.map((unitId) => {
+						const redLamp = byId[unitId + "_red"];
+						const yellowLamp = byId[unitId + "_yellow"];
+						const greenLamp = byId[unitId + "_green"];
+						const redOn = redLamp && (redLamp.on || redLamp.color === "red_active");
+						const yellowOn = yellowLamp && (yellowLamp.on || yellowLamp.color === "yellow");
+						const greenOn = greenLamp && (greenLamp.on || greenLamp.color === "green");
+						const label = unitId.replace(/_/g, " ");
+						const showYellow = !!yellowLamp;
+						return `
+          <div class="unit-card" title="${escapeHtml(unitId)}">
+            <div class="unit-name">${escapeHtml(label)}</div>
+            <div class="seq-lights">
+              <div class="light red ${redOn ? "on" : "off"}" title="Red"></div>
+              ${showYellow ? `<div class="light yellow ${yellowOn ? "on" : "off"}" title="Yellow"></div>` : ""}
+              <div class="light green ${greenOn ? "on" : "off"}" title="Green"></div>
+            </div>
+          </div>
+        `;
+					})
+					.join("");
+			}
+
+			function renderModeToggle(state) {
+				const mode = (state.control_mode || "auto").toLowerCase();
+				const labelEl = document.getElementById("mode-label");
+				const toggleEl = document.getElementById("mode-toggle");
+				if (labelEl) labelEl.textContent = mode === "manual" ? "Manual" : "Auto";
+				if (toggleEl) {
+					toggleEl.classList.toggle("manual", mode === "manual");
+					toggleEl.setAttribute("aria-label", mode === "manual" ? "Manual mode – click sequence or camera cards to trigger" : "Auto mode");
+				}
+				document.body.classList.toggle("manual-mode", mode === "manual");
+				var ind = document.getElementById("status-indicator");
+				if (ind) {
+					if (state.standby_mode) {
+						ind.textContent = "Standby — All lights off (power save)";
+						ind.className = "status-indicator standby";
+						ind.title = "All relays off after 30 min idle. Power save.";
+					} else if (state.in_phase) {
+						ind.textContent = "Working";
+						ind.className = "status-indicator working";
+						ind.title = "Phase running (green/yellow)";
+					} else {
+						ind.textContent = "Idle";
+						ind.className = "status-indicator idle";
+						ind.title = "No phase running";
+					}
+				}
+				var cancelBtn = document.getElementById("cancel-phase-btn");
+				if (cancelBtn) cancelBtn.classList.toggle("visible", !!state.in_phase);
+			}
+
+			function phaseColorForSequence(state, seqKey) {
+				const phases = state.phases || {};
+				const phase = phases[seqKey];
+				if (!phase) return "off";
+				const currentPhase = state.current_phase;
+				const inStandby = state.standby_mode;
+				const active = currentPhase === seqKey;
+				if (!active || inStandby) return "off";
+				// Use phase_sub_state so yellow/red show correctly (lamp-based inference can be wrong when red_keys include green lamp IDs).
+				const sub = (state.phase_sub_state || "").toLowerCase();
+				if (sub === "green") return "green";
+				if (sub === "yellow") return "yellow";
+				if (sub === "red") return "red";
+				const lamps = lampMap(state.lamps || []);
+				const greenKeys = phase.green_keys || [];
+				const yellowKeys = phase.yellow_keys || [];
+				const redKeys = phase.red_keys || [];
+				const anyGreenOn = greenKeys.some((id) => lamps[id] && lamps[id].color === "green");
+				const anyYellowOn = yellowKeys.some((id) => lamps[id] && lamps[id].color === "yellow");
+				const anyRedOn = redKeys.some((id) => lamps[id] && lamps[id].color === "red_active");
+				if (anyGreenOn) return "green";
+				if (anyYellowOn) return "yellow";
+				if (anyRedOn) return "red";
+				return "off";
+			}
+
+			function updateCameraCardBorders(state) {
+				const cards = cameraStreamsEl.querySelectorAll(".camera-card[data-phase]");
+				cards.forEach((card) => {
+					const seqKey = card.getAttribute("data-phase");
+					if (!seqKey) return;
+					const phaseColor = phaseColorForSequence(state, seqKey);
+					card.classList.remove("phase-green", "phase-yellow", "phase-red", "phase-off");
+					card.classList.add("phase-" + phaseColor);
+				});
+			}
+
+			function renderPhase(state) {
+				const phase = state.current_phase || "idle";
+				const inPhase = state.in_phase;
+				const inStandby = state.standby_mode;
+				phaseNameEl.textContent = inPhase ? (state.phases && state.phases[phase] ? state.phases[phase].name : phase) : inStandby ? "Standby" : "Idle";
+				phaseNameEl.className = "phase-name" + (inPhase ? " in-phase" : inStandby ? " standby" : " idle");
+				statusBadgeEl.textContent = inPhase ? "in phase" : inStandby ? "standby" : "idle";
+				statusBadgeEl.className = "status-badge " + (inPhase ? "running" : inStandby ? "standby" : "idle");
+				renderModeToggle(state);
+
+				const data = state.data || {};
+				const keys = ["north_right_vehicle_count", "north_left_vehicle_count", "south_left_vehicle_count", "south_right_vehicle_count", "pedestrian_narrow_passage_count", "narrow_centre_vehicle_count"];
+				countsEl.innerHTML = keys
+					.map((k) => {
+						const v = data[k] && data[k].value !== undefined ? data[k].value : "—";
+						const label = k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+						return `<span class="count">${label}: <span>${v}</span></span>`;
+					})
+					.join("");
+
+				renderSequences(state);
+				renderPhaseTime(state);
+				updateCameraCardBorders(state);
+			}
+
+			function poll() {
+				fetch("/api/state")
+					.then((r) => r.json())
+					.then((state) => {
+						errorEl.style.display = "none";
+						if (state.error) {
+							errorEl.textContent = state.error;
+							errorEl.style.display = "block";
+							return;
+						}
+						renderPoles(state.lamps || []);
+						renderPhase(state);
+						updatedEl.textContent = "Updated " + new Date().toLocaleTimeString();
+					})
+					.catch((err) => {
+						errorEl.textContent = "Cannot reach coordinator: " + err.message;
+						errorEl.style.display = "block";
+					});
+			}
+
+			document.getElementById("cancel-phase-btn").addEventListener("click", function () {
+				if (!this.classList.contains("visible")) return;
+				fetch("/api/cancel_phase", { method: "POST", headers: { "Content-Type": "application/json" } })
+					.then((r) => r.json())
+					.then((data) => {
+						if (data.ok) poll();
+					})
+					.catch(() => {});
+			});
+
+			document.getElementById("mode-toggle").addEventListener("click", function () {
+				const next = this.classList.contains("manual") ? "auto" : "manual";
+				fetch("/api/mode", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ mode: next }),
+				})
+					.then((r) => r.json())
+					.then((data) => {
+						if (data.ok) {
+							poll();
+						}
+					})
+					.catch(() => {});
+			});
+
+			function triggerPhase(phase) {
+				fetch("/api/trigger_phase", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ phase: phase }),
+				})
+					.then((r) => r.json())
+					.then((data) => {
+						if (data.ok) {
+							poll();
+						}
+					})
+					.catch(() => {});
+			}
+
+			sequencesEl.addEventListener("click", function (e) {
+				const card = e.target.closest(".seq-card.clickable");
+				if (!card) return;
+				const phase = card.getAttribute("data-phase");
+				if (!phase) return;
+				e.preventDefault();
+				triggerPhase(phase);
+			});
+
+			cameraStreamsEl.addEventListener("click", function (e) {
+				const card = e.target.closest(".camera-card[data-phase]");
+				if (!card || !document.body.classList.contains("manual-mode")) return;
+				const phase = card.getAttribute("data-phase");
+				if (!phase) return;
+				e.preventDefault();
+				triggerPhase(phase);
+			});
+
+			loadCameras();
+			poll();
+			setInterval(poll, 1000);
+		</script>
+	</body>
+</html>

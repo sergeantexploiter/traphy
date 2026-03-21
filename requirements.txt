@@ -1,0 +1,16 @@
+# Smart Traffic Light: vehicle detection, tracking, counting, speed, violations
+# Python 3.8+
+
+# YOLOv8
+ultralytics>=8.0.0
+
+# Video & image
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# SORT tracker (Kalman filter + assignment)
+filterpy>=1.4.5
+scipy>=1.10.0
+
+# License plate recognition (optional; disable in config to skip)
+easyocr>=1.7.0

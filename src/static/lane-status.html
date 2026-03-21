@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your lane status</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #1a1b26;
+      color: #c0caf5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    h1 { font-size: 1.5rem; color: #7aa2f7; margin: 0 0 1rem 0; }
+    .card {
+      background: #24283b;
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid #414868;
+      max-width: 360px;
+      width: 100%;
+      text-align: center;
+    }
+    .lane-name { font-size: 1.1rem; font-weight: 600; color: #a9b1d6; margin-bottom: 1rem; }
+    .lights {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      margin: 1rem 0;
+    }
+    .light {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 3px solid #414868;
+      transition: box-shadow 0.2s, background 0.2s;
+    }
+    .light.red.off { background: #3b3f5c; }
+    .light.red.on { background: #f7768e; box-shadow: 0 0 16px #f7768e; }
+    .light.yellow.off { background: #3b3f5c; }
+    .light.yellow.on { background: #e0af68; box-shadow: 0 0 16px #e0af68; }
+    .light.green.off { background: #3b3f5c; }
+    .light.green.on { background: #9ece6a; box-shadow: 0 0 16px #9ece6a; }
+    .status-text { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.25rem 0; }
+    .status-text.green { color: #9ece6a; }
+    .status-text.yellow { color: #e0af68; }
+    .status-text.red { color: #f7768e; }
+    .time-remaining { font-size: 1rem; color: #a9b1d6; margin-bottom: 0.5rem; }
+    .btn {
+      display: inline-block;
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      background: #7aa2f7;
+      color: #1a1b26;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+    .btn:hover { background: #89b4fa; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .message { font-size: 0.9rem; color: #565f89; margin-top: 1rem; }
+    .error { color: #f7768e; }
+    .small { font-size: 0.8rem; color: #565f89; margin-top: 0.5rem; }
+    .test-section { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #414868; }
+    .test-section label { font-size: 0.85rem; color: #565f89; display: block; margin-bottom: 0.25rem; }
+    .test-inputs { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem; }
+    .test-inputs input { width: 6rem; padding: 0.4rem 0.5rem; border-radius: 6px; border: 1px solid #414868; background: #1a1b26; color: #c0caf5; font-size: 0.9rem; }
+    .test-inputs .btn { margin-top: 0; }
+    .change-loc { font-size: 0.85rem; color: #7aa2f7; cursor: pointer; margin-top: 0.75rem; display: inline-block; }
+    .change-loc:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Your lane status</h1>
+  <div class="card">
+    <div id="prompt">
+      <p class="message">Allow GPS location to see your lane and live signal status.</p>
+      <button id="allow-btn" class="btn">Allow location</button>
+      <div class="test-section">
+        <label>Or use test coordinates (for testing):</label>
+        <div class="test-inputs">
+          <input type="number" id="test-lat" placeholder="Latitude" step="any" title="e.g. 37.775">
+          <input type="number" id="test-lon" placeholder="Longitude" step="any" title="e.g. -122.419">
+          <button type="button" id="test-btn" class="btn">Use this location</button>
+        </div>
+      </div>
+    </div>
+    <div id="content" style="display:none;">
+      <p class="lane-name" id="lane-name">—</p>
+      <div class="lights">
+        <div id="light-red" class="light red off" title="Red"></div>
+        <div id="light-yellow" class="light yellow off" title="Yellow"></div>
+        <div id="light-green" class="light green off" title="Green"></div>
+      </div>
+      <p id="status-text" class="status-text red">—</p>
+      <p id="time-remaining" class="time-remaining"></p>
+      <p id="coords" class="small"></p>
+      <a id="change-loc" class="change-loc" style="display:none;">Change location</a>
+    </div>
+    <div id="error" class="message error" style="display:none;"></div>
+  </div>
+
+  <script>
+    const allowBtn = document.getElementById('allow-btn');
+    const testBtn = document.getElementById('test-btn');
+    const testLatEl = document.getElementById('test-lat');
+    const testLonEl = document.getElementById('test-lon');
+    const changeLocEl = document.getElementById('change-loc');
+
+    function getFingerprint() {
+      var key = 'lane_status_fp';
+      try {
+        var stored = localStorage.getItem(key);
+        if (stored) return stored;
+        var u = navigator.userAgent || '';
+        var s = '' + screen.width + 'x' + screen.height + (screen.colorDepth || '');
+        var t = new Date().getTime();
+        var r = '' + Math.random();
+        var hash = btoa(u + s + t + r).replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+        var fp = 'fp_' + hash + '_' + Date.now();
+        localStorage.setItem(key, fp);
+        return fp;
+      } catch (e) {
+        return 'fp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      }
+    }
+    const promptEl = document.getElementById('prompt');
+    const contentEl = document.getElementById('content');
+    const errorEl = document.getElementById('error');
+    const laneNameEl = document.getElementById('lane-name');
+    const lightRed = document.getElementById('light-red');
+    const lightYellow = document.getElementById('light-yellow');
+    const lightGreen = document.getElementById('light-green');
+    const statusTextEl = document.getElementById('status-text');
+    const timeRemainingEl = document.getElementById('time-remaining');
+    const coordsEl = document.getElementById('coords');
+
+    // Point-in-polygon (ray casting). Polygon: array of [lat, lon] in order A → B → D → C → A.
+    function pointInPolygon(lat, lon, polygon) {
+      if (!polygon || polygon.length < 3) return false;
+      const x = lon, y = lat;
+      let inside = false;
+      const n = polygon.length;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = polygon[i][1], yi = polygon[i][0];
+        const xj = polygon[j][1], yj = polygon[j][0];
+        if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+      }
+      return inside;
+    }
+
+    function findGeofence(lat, lon, geofences) {
+      for (const g of geofences) {
+        if (g.polygon && pointInPolygon(lat, lon, g.polygon)) return g;
+      }
+      return null;
+    }
+
+    // Lane status uses current_phase + phase_sub_state (green/yellow/red). Phases are sequence-based (seq1/seq2/seq3);
+    // coordinator sends unit_ids and derived green_keys/yellow_keys/red_keys in state.phases for compatibility.
+    function updateLights(state, seqKey) {
+      if (!state || typeof state !== 'object') state = {};
+      const isMyPhase = state.current_phase === seqKey;
+      const sub = state.phase_sub_state || null;
+      const standby = !!state.standby_mode;
+
+      if (standby) {
+        lightRed.classList.remove('on'); lightRed.classList.add('off');
+        lightYellow.classList.remove('on'); lightYellow.classList.add('off');
+        lightGreen.classList.remove('on'); lightGreen.classList.add('off');
+        statusTextEl.textContent = 'Lights off (standby)';
+        statusTextEl.className = 'status-text';
+        timeRemainingEl.textContent = '';
+        return;
+      }
+
+      if (!isMyPhase || (sub !== 'green' && sub !== 'yellow')) {
+        lightRed.classList.add('on'); lightRed.classList.remove('off');
+        lightYellow.classList.remove('on'); lightYellow.classList.add('off');
+        lightGreen.classList.remove('on'); lightGreen.classList.add('off');
+        statusTextEl.textContent = 'Red — wait';
+        statusTextEl.className = 'status-text red';
+        timeRemainingEl.textContent = 'Your lane will turn green in the next cycle.';
+        return;
+      }
+
+      if (sub === 'green') {
+        lightRed.classList.remove('on'); lightRed.classList.add('off');
+        lightYellow.classList.remove('on'); lightYellow.classList.add('off');
+        lightGreen.classList.add('on'); lightGreen.classList.remove('off');
+        statusTextEl.textContent = 'Green — go';
+        statusTextEl.className = 'status-text green';
+        const start = state.phase_start_time || 0;
+        const total = state.assigned_green_duration || 0;
+        const now = Date.now() / 1000;
+        const elapsed = Math.max(0, now - start);
+        const left = Math.max(0, total - elapsed);
+        timeRemainingEl.textContent = total > 0 ? `About ${left.toFixed(0)}s green remaining` : '';
+        return;
+      }
+
+      if (sub === 'yellow') {
+        lightRed.classList.remove('on'); lightRed.classList.add('off');
+        lightYellow.classList.add('on'); lightYellow.classList.remove('off');
+        lightGreen.classList.remove('on'); lightGreen.classList.add('off');
+        statusTextEl.textContent = 'Yellow — clear the intersection';
+        statusTextEl.className = 'status-text yellow';
+        const start = state.yellow_start_time || 0;
+        const total = state.yellow_duration || 3;
+        const now = Date.now() / 1000;
+        const elapsed = Math.max(0, now - start);
+        const left = Math.max(0, total - elapsed);
+        timeRemainingEl.textContent = `About ${left.toFixed(0)}s yellow remaining`;
+        return;
+      }
+    }
+
+    let pollTimer = null;
+    let currentSeq = null;
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(function() {
+        if (!currentSeq) return;
+        fetch('/api/state')
+          .then(r => r.json())
+          .then(state => {
+            if (state.error) return;
+            updateLights(state, currentSeq.sequence);
+          })
+          .catch(() => {});
+      }, 1000);
+    }
+
+    var fingerprint = getFingerprint();
+
+    function onLocation(lat, lon) {
+      coordsEl.textContent = `Lat ${lat.toFixed(5)}, Lon ${lon.toFixed(5)}`;
+      fetch('/api/lane-location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: fingerprint, lat: lat, lon: lon })
+      })
+        .then(function(r) {
+          if (r.status === 404) return r.json().then(function(d) { throw new Error(d.message || 'Not in a monitored lane'); });
+          if (!r.ok) throw new Error('Server error');
+          return r.json();
+        })
+        .then(function(lane) {
+          errorEl.style.display = 'none';
+          promptEl.style.display = 'none';
+          contentEl.style.display = 'block';
+          changeLocEl.style.display = 'inline-block';
+          laneNameEl.textContent = lane.name || lane.sequence;
+          currentSeq = { sequence: lane.sequence, name: lane.name };
+          fetch('/api/state')
+            .then(function(r) { return r.json(); })
+            .then(function(state) {
+              if (state.error) return;
+              updateLights(state, lane.sequence);
+            })
+            .catch(function() { updateLights({ current_phase: null, phase_sub_state: null, standby_mode: false }, lane.sequence); });
+          startPolling();
+        })
+        .catch(function(e) {
+          errorEl.style.display = 'block';
+          errorEl.textContent = e.message || 'Could not resolve lane.';
+        });
+    }
+
+    function useLocation(lat, lon) {
+      if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Please enter valid latitude and longitude.';
+        return;
+      }
+      lat = Number(lat);
+      lon = Number(lon);
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Latitude must be -90 to 90, longitude -180 to 180.';
+        return;
+      }
+      errorEl.style.display = 'none';
+      onLocation(lat, lon);
+    }
+
+    allowBtn.addEventListener('click', function() {
+      errorEl.style.display = 'none';
+      allowBtn.disabled = true;
+      allowBtn.textContent = 'Getting location…';
+      if (!navigator.geolocation) {
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Geolocation is not supported by your browser.';
+        allowBtn.disabled = false;
+        allowBtn.textContent = 'Allow location';
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          allowBtn.textContent = 'Allow location';
+          allowBtn.disabled = false;
+          onLocation(pos.coords.latitude, pos.coords.longitude);
+        },
+        function(err) {
+          allowBtn.textContent = 'Allow location';
+          allowBtn.disabled = false;
+          errorEl.style.display = 'block';
+          errorEl.textContent = 'Location denied or unavailable: ' + (err.message || 'unknown error');
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    });
+
+    testBtn.addEventListener('click', function() {
+      const lat = testLatEl.value.trim();
+      const lon = testLonEl.value.trim();
+      useLocation(lat === '' ? null : parseFloat(lat), lon === '' ? null : parseFloat(lon));
+    });
+
+    changeLocEl.addEventListener('click', function() {
+      contentEl.style.display = 'none';
+      changeLocEl.style.display = 'none';
+      promptEl.style.display = 'block';
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      currentSeq = null;
+    });
+  </script>
+</body>
+</html>
