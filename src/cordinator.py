@@ -4,7 +4,7 @@ Traffic light coordinator: subscribes to MQTT vehicle/pedestrian counts, selects
 phases (FCFS + density tie-breaker), and controls relay servers (Pis) to turn
 green/yellow/red. Waits for narrow centre to clear before starting next phase.
 Runs a dashboard thread for live visualization.
-
+/home/ubuntu/hdstorage
 Flow:
   - Main loop: when idle and narrow centre clear, select_next_phase() or run manual phase.
   - run_phase(): current sequence green → yellow → red (other sequences stay red); then wait narrow clear.
@@ -146,6 +146,8 @@ idle_all_off_sent = False  # True after we have sent all-off while idle (avoid r
 control_mode = "auto"      # "auto" or "manual"; when manual, only trigger_phase() runs phases.
 manual_phase_request = None  # When manual: phase_key to run next (seq1/seq2/seq3), or None.
 cancel_phase_request = False  # When True, run_phase aborts and applies all-red (dashboard "Cancel" button).
+pending_sleep_standby = False  # When True, enter standby (all relays off) once idle (dashboard "Sleep" button).
+wake_standby_request = False  # When True, exit standby and resume normal relay control (dashboard "Wake").
 _control_lock = threading.Lock()
 _manual_wake_event = threading.Event()   # Set by trigger_phase() so idle manual loop wakes quickly.
 _standby_wake_event = threading.Event()   # Set by MQTT on_message when data changes; standby loop wakes.
@@ -583,6 +585,29 @@ def cancel_phase():
     logger.info(">>> Cancel phase (all-red) requested <<<")
 
 
+def request_sleep_standby():
+    """Enter power-save standby: abort any phase, clear manual request, all relays off (dashboard 'Sleep')."""
+    global pending_sleep_standby, cancel_phase_request, manual_phase_request, last_activity_time
+    last_activity_time = time.time()
+    with _control_lock:
+        pending_sleep_standby = True
+        cancel_phase_request = True
+        manual_phase_request = None
+    _standby_wake_event.set()
+    _manual_wake_event.set()
+    logger.info(">>> Sleep — standby (all relays off) requested <<<")
+
+
+def request_wake_standby():
+    """Exit standby: resume idle relay pattern (all-red + pedestrian) (dashboard 'Wake')."""
+    global wake_standby_request, last_activity_time
+    last_activity_time = time.time()
+    with _control_lock:
+        wake_standby_request = True
+    _standby_wake_event.set()
+    logger.info(">>> Wake — exit standby requested <<<")
+
+
 def _dashboard_get_state():
     """Return a JSON-serializable state snapshot for the live dashboard (relay state, phases, data, timing)."""
     return {
@@ -628,6 +653,8 @@ try:
             "set_mode_fn": set_control_mode,
             "trigger_phase_fn": trigger_phase,
             "cancel_phase_fn": cancel_phase,
+            "sleep_standby_fn": request_sleep_standby,
+            "wake_standby_fn": request_wake_standby,
         },
         daemon=True,
     )
@@ -646,6 +673,15 @@ STATUS_LOG_INTERVAL = 60.0
 
 while not _shutdown:
     decay_old_counts()
+
+    if wake_standby_request:
+        with _control_lock:
+            wake_standby_request = False
+        standby_mode = False
+        standby_data_snapshot = {}
+        last_activity_time = time.time()
+        logger.info("Wake: operator cleared standby — resuming relays")
+
     if not standby_mode:
         handle_pedestrian()  # Update pedestrian unit; in standby we leave all relays off.
 
@@ -656,6 +692,22 @@ while not _shutdown:
         phase_str = current_phase if current_phase else "idle"
         narrow = data['narrow_centre_vehicle_count']['value']
         logger.info(f"Status: phase={phase_str} in_phase={in_phase} narrow_centre={narrow} last_served={last_served}")
+
+    # Dashboard Sleep: when idle, force standby (all relays off). If a phase is running, cancel_phase_request
+    # aborts it first; this block runs on the next iteration once in_phase is False.
+    if pending_sleep_standby and not in_phase:
+        with _control_lock:
+            pending_sleep_standby = False
+            cancel_phase_request = False
+        with _data_lock:
+            standby_data_snapshot = {k: data[k].get("value", 0) for k in data}
+        standby_mode = True
+        force_all_relays_off()
+        idle_all_off_sent = True
+        logger.info("Sleep: operator standby — all relays off until counts change or manual trigger")
+        _standby_wake_event.clear()
+        _standby_wake_event.wait(timeout=0.2)
+        continue
 
     # Block: do not start a new phase while narrow centre has vehicles; wait and re-check.
     if data['narrow_centre_vehicle_count']['value'] > 0:

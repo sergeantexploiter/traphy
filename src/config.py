@@ -3,6 +3,20 @@
 Shared configuration for the smart traffic light system. Used by coordinator,
 simulator, dashboard, and relay clients. Paths are relative to this package.
 
+sudo apt update
+sudo apt install mosquitto mosquitto-clients
+sudo mosquitto_passwd -c /etc/mosquitto/passwd <username>
+sudo mosquitto_passwd /etc/mosquitto/passwd <additional_username>
+sudo nano /etc/mosquitto/conf.d/default.conf
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+sudo systemctl restart mosquitto
+mosquitto_sub -h localhost -t test -u "<username>" -P "<password>"
+
+apt update
+apt install python3-pip curl ffmpeg
+pip3 install paho-mqtt requests cryptography flask waitress
+
 /opt/homebrew/opt/mosquitto/sbin/mosquitto -c /opt/homebrew/etc/mosquitto/mosquitto.conf
 
 """
@@ -20,7 +34,7 @@ CERTS_DIR = _BASE_DIR / 'certs'
 # Dry run mode: if True, relay HTTP calls are skipped (logged only).
 # Set to False in production to actually control relays.
 # -----------------------------------------------------------------------------
-DRY_RUN = True
+DRY_RUN = False
 
 FFMPEG_PATH = ""
 
@@ -50,18 +64,18 @@ if DRY_RUN == False:
     ]
 else:
     CAMERA_FEEDS = [
-        {"id": "north_left", "label": "north_left", "sequence": "seq3", "recording" : False,
-            "url": "rtsp://admin:SPLOIT4life@192.168.0.6:554/cam/realmonitor?channel=2&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "north_right", "label": "north_right", "sequence": "seq2", "recording" : False,
-            "url": "rtsp://admin:SPLOIT4life@192.168.0.6:554/cam/realmonitor?channel=3&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "narrow_centre_1", "label": "narrow_centre_1", "sequence": None, "recording" : False,
-            "url": "rtsp://admin:DISON4life%40@192.168.0.218:554/Streaming/Channels/102"},
-        {"id": "narrow_centre_2", "label": "narrow_centre_2", "sequence": None, "recording" : False,
-            "url": "rtsp://admin:DISON4life%40@192.168.0.218:554/Streaming/Channels/102"},
-        {"id": "south_left", "label": "south_left", "sequence": "seq1", "recording" : False,
-            "url": "rtsp://admin:DISON4life%40@192.168.0.5:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "south_right", "label": "south_right", "sequence": "seq1", "recording" : False,
-            "url": "rtsp://admin:DISON4life%40@192.168.0.5:554/cam/realmonitor?channel=3&subtype=1&unicast=true&proto=Onvif"},
+        {"id": "north_left", "label": "north_left", "sequence": "seq3", "recording": True, "record": True,
+            "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
+        {"id": "north_right", "label": "north_right", "sequence": "seq2","recording": True, "record": True,
+            "url": "rtsp://admin:SPLOIT4life@192.168.1.73:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
+        {"id": "narrow_centre_1", "label": "narrow_centre_1", "sequence": None,"recording": True, "record": True,
+            "url": "rtsp://admin:SPLOIT4life@192.168.1.250:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
+        {"id": "narrow_centre_2", "label": "narrow_centre_2", "sequence": None,"recording": True, "record": True,
+            "url": "rtsp://admin:SPLOIT4life@192.168.1.201:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
+        {"id": "south_left", "label": "south_left", "sequence": "seq1","recording": True, "record": True,
+            "url": "rtsp://admin:SPLOIT4life@192.168.1.97:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
+        {"id": "south_right", "label": "south_right", "sequence": "seq1","recording": True, "record": True,
+            "url": "rtsp://admin:SPLOIT4life@192.168.1.130:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
     ]
 
 # -----------------------------------------------------------------------------
@@ -80,7 +94,7 @@ if DRY_RUN == False:
 RELAY_SERVERS = {
     'pi1': 'https://192.168.0.176:8080',
     'pi2': 'https://192.168.0.202:8080',
-    'pi3': 'https://192.168.0.114:8080',
+    'pi3': 'https://192.168.0.113:8080',
     'pi4': 'https://192.168.0.112:8080',
 }
 
@@ -89,7 +103,7 @@ RELAY_PINS = {
     1: 5, 2: 6, 3: 13, 4: 16, 5: 19, 6: 20, 7: 21, 8: 26,
 }
 
-IDLE_STANDBY_SECONDS = 1 * 60  # 30 minutes
+IDLE_STANDBY_SECONDS = 10 * 60  # 30 minutes
 
 # Each phase selects traffic light units that get green → then yellow → then red (same units for all three).
 # unit_ids and trigger_keys are required; geofence is used by lane-status (GPS → which lane). Lamp keys derived from TRAFFIC_LIGHT_UNITS.
@@ -114,10 +128,10 @@ PHASES = {
         "trigger_keys": ["south_right_vehicle_count", "south_left_vehicle_count"],
         "geofence": {
             "name": "Lane 1 - School Exit",
-            "A": [37.7748, -122.4196],
-            "B": [37.7748, -122.4192],
-            "C": [37.7750, -122.4192],
-            "D": [37.7750, -122.4196],
+            "A": [5.602540, -0.141943],
+            "B": [5.602615, -0.142005],
+            "C": [5.602905, -0.140880],
+            "D": [5.602804, -0.140835],
         },
     },
     "seq2": {
@@ -134,10 +148,10 @@ PHASES = {
         "trigger_keys": ["north_right_vehicle_count"],
         "geofence": {
             "name": "Lane 2 - Main Road Exit to School Entrance",
-            "A": [37.7750, -122.4194],
-            "B": [37.7750, -122.4190],
-            "C": [37.7752, -122.4190],
-            "D": [37.7752, -122.4194],
+            "A": [5.603378, -0.141422],
+            "B": [5.603499, -0.140981],
+            "C": [5.603582, -0.141020],
+            "D": [5.603451, -0.141455],
         },
     },
     "seq3": {
@@ -154,10 +168,10 @@ PHASES = {
         "trigger_keys": ["north_left_vehicle_count"],
         "geofence": {
             "name": "Lane 3 - COMM RD TO MAIN ROAD EXIT",
-            "A": [37.7752, -122.4192],
-            "B": [37.7752, -122.4188],
-            "C": [37.7754, -122.4188],
-            "D": [37.7754, -122.4192],
+            "A": [5.603352, -0.141513],
+            "B": [5.603260, -0.141874],
+            "C": [5.603362, -0.141897],
+            "D": [5.603436, -0.141573],
         },
     },
 }
@@ -175,7 +189,7 @@ STARTUP_RED_KEYS = [
     "pole_4_right_b_yellow",
 ]
 
-# Lane geofences list derived from PHASES (for lane-status /api/geofences and /api/lane-location). Reference PHASES for editing.
+# Lane geofences list derived from PHASES (for lane-status /api/geofences; browser resolves GPS client-side).
 LANE_GEOFENCES = [
     {"sequence": pkey, "name": g.get("name", phase.get("name", pkey)), "A": g["A"], "B": g["B"], "C": g["C"], "D": g["D"]}
     for pkey, phase in PHASES.items()
@@ -266,24 +280,34 @@ RELAY_TIMEOUT = 5
 # Dashboard (live visualization) — served at http://<host>:DASHBOARD_PORT
 # -----------------------------------------------------------------------------
 # Use 5001+ on macOS (Monterey+) to avoid AirPlay Receiver on 5000.
-DASHBOARD_PORT = 5003
+DASHBOARD_PORT = 5000
 DASHBOARD_HOST = "192.168.0.11"
 
 # -----------------------------------------------------------------------------
 # Camera streaming app — separate process or thread on its own port.
 # Uses config.CAMERA_FEEDS and config.FFMPEG_PATH. Dashboard fetches streams from this URL.
 # -----------------------------------------------------------------------------
-CAMERA_APP_PORT = 5004
+CAMERA_APP_PORT = 5001
 CAMERA_APP_HOST = "192.168.0.11"
 # Base URL the browser uses to reach the camera app (same host as dashboard, different port).
-CAMERA_APP_BASE_URL = "http://192.168.0.11:5004"
+CAMERA_APP_BASE_URL = "http://" + CAMERA_APP_HOST + ":" + str(CAMERA_APP_PORT)
 
-# Disk recording (camera_app.py): async queue + writer thread so client MJPEG is unaffected.
+# Disk recording (camera_app.py): 1× RTSP → MJPEG for live stream; second ffmpeg (stdin MJPEG→H.264) on a
+# bounded queue — drops frames if encoder/disk lags so the browser stream is never blocked.
 # Set CAMERA_RECORD_ENABLED = False to disable. Per-feed override: "record": False in a CAMERA_FEEDS entry.
 CAMERA_RECORD_ENABLED = False
-CAMERA_RECORD_DIR = str(_BASE_DIR.parent / "camera_recordings")  # absolute path recommended on Pi
-CAMERA_RECORD_QUEUE_MAX = 2  # drop recording frames if disk is slow; stream never blocks
-CAMERA_RECORD_SEGMENT_MINUTES = 60  # new file per camera per segment
+CAMERA_RECORD_DIR = str("/home/coordinator/camera_recordings")  # absolute path recommended on Pi
+CAMERA_RECORD_QUEUE_MAX = 2  # recording only; full queue → drop oldest frame for disk, never block stream
+CAMERA_RECORD_SEGMENT_MINUTES = 60  # new segment file every N minutes (ffmpeg -segment_time)
+# Video output: "mp4" (H.264 + faststart) or "mkv" (H.264 in Matroska, robust on abrupt close)
+CAMERA_RECORD_CONTAINER = "mp4"
+CAMERA_RECORD_PRESET = "veryfast"  # x264 preset (ultrafast … veryslow)
+CAMERA_RECORD_CRF = 23  # quality (lower = better, ~18–28 typical)
+# Recording retention: see camera_retention.py (run once via cron or python -m src.camera_retention --daemon).
+# Delete files older than this many days (mtime under CAMERA_RECORD_DIR/<cam_id>/). 0 = no-op in retention script.
+CAMERA_RECORD_RETENTION_DAYS = 30
+# Daemon mode only: seconds between cleanup passes.
+CAMERA_RECORD_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 
 # -----------------------------------------------------------------------------
 # Lamp/signal id -> (server, relay_id). Used by coordinator and dashboard.

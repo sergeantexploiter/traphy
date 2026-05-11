@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _login_failures: Dict[str, list] = {}
 _login_failures_lock = threading.Lock()
 
-# Fingerprint -> last known lane (sequence, name, lat, lon, updated_at) for tracking
+# Optional: fingerprint -> last POST /api/lane-location sample (ops / debugging). Lane-status uses /api/geofences + client-side GPS.
 _lane_tracking: Dict[str, dict] = {}
 _lane_tracking_lock = threading.Lock()
 
@@ -256,6 +256,8 @@ class DashboardServer:
         set_mode_fn=None,
         trigger_phase_fn=None,
         cancel_phase_fn=None,
+        sleep_standby_fn=None,
+        wake_standby_fn=None,
     ):
         self._get_state        = get_state_fn
         self._cache_ttl        = cache_ttl
@@ -263,6 +265,8 @@ class DashboardServer:
         self._set_mode_fn      = set_mode_fn
         self._trigger_phase_fn = trigger_phase_fn
         self._cancel_phase_fn  = cancel_phase_fn
+        self._sleep_standby_fn = sleep_standby_fn
+        self._wake_standby_fn  = wake_standby_fn
         self.app               = self._create_app()
 
     def _create_app(self):
@@ -278,6 +282,8 @@ class DashboardServer:
         app.add_url_rule("/api/mode",               "api_mode",        self._api_mode,    methods=["POST"])
         app.add_url_rule("/api/trigger_phase",      "api_trigger_phase", self._api_trigger_phase, methods=["POST"])
         app.add_url_rule("/api/cancel_phase",       "api_cancel_phase",  self._api_cancel_phase,  methods=["POST"])
+        app.add_url_rule("/api/sleep_standby",      "api_sleep_standby", self._api_sleep_standby, methods=["POST"])
+        app.add_url_rule("/api/wake_standby",       "api_wake_standby",  self._api_wake_standby,  methods=["POST"])
         app.add_url_rule("/health",                 "health",         self._health)
 
         @app.before_request
@@ -365,37 +371,43 @@ class DashboardServer:
         return jsonify({"geofences": geofences})
 
     def _api_lane_location(self):
-        """POST { fingerprint, lat, lon }: resolve lane from geofences, store for tracking, return lane."""
+        """POST { lat, lon }: resolve lane from geofences (always from current coordinates).
+        Optional fingerprint (max 256 chars): stores last sample in _lane_tracking for ops only."""
         try:
             data = request.get_json(force=True, silent=True) or {}
-            fingerprint = (data.get("fingerprint") or "").strip()
             try:
                 lat = float(data.get("lat"))
                 lon = float(data.get("lon"))
             except (TypeError, ValueError):
                 return jsonify({"error": "lat and lon required as numbers"}), 400
-            if not fingerprint or len(fingerprint) > 256:
-                return jsonify({"error": "fingerprint required (max 256 chars)"}), 400
+
+            fingerprint = (data.get("fingerprint") or "").strip()
+            if len(fingerprint) > 256:
+                return jsonify({"error": "fingerprint max 256 chars"}), 400
+
             raw = getattr(config, "LANE_GEOFENCES", [])
             geofences = []
             for g in raw:
                 if "A" in g and "B" in g and "C" in g and "D" in g:
                     polygon = [g["A"], g["B"], g["D"], g["C"]]
                     geofences.append({"sequence": g.get("sequence"), "name": g.get("name", ""), "polygon": polygon})
+            now = time.time()
             lane = None
             for g in geofences:
                 if _point_in_polygon(lat, lon, g["polygon"]):
                     lane = g
                     break
-            now = time.time()
-            with _lane_tracking_lock:
-                _lane_tracking[fingerprint] = {
-                    "sequence": lane["sequence"] if lane else None,
-                    "name": lane["name"] if lane else None,
-                    "lat": lat,
-                    "lon": lon,
-                    "updated_at": now,
-                }
+
+            if fingerprint:
+                with _lane_tracking_lock:
+                    _lane_tracking[fingerprint] = {
+                        "sequence": lane["sequence"] if lane else None,
+                        "name": lane["name"] if lane else None,
+                        "lat": lat,
+                        "lon": lon,
+                        "updated_at": now,
+                    }
+
             if not lane:
                 return jsonify({"error": "not_in_lane", "message": "You're not in a monitored lane."}), 404
             return jsonify({"sequence": lane["sequence"], "name": lane["name"]})
@@ -500,6 +512,30 @@ class DashboardServer:
             logger.exception("Cancel phase error: %s", e)
             return jsonify({"error": str(e)}), 500
 
+    def _api_sleep_standby(self):
+        """POST: cancel phases and enter standby (all relays off)."""
+        if not self._sleep_standby_fn:
+            return jsonify({"error": "sleep standby not available"}), 501
+        try:
+            self._sleep_standby_fn()
+            self._state_cache = {"response": None, "ts": 0.0}
+            return jsonify({"ok": True}), 200
+        except Exception as e:
+            logger.exception("Sleep standby error: %s", e)
+            return jsonify({"error": str(e)}), 500
+
+    def _api_wake_standby(self):
+        """POST: exit standby and resume normal relay control."""
+        if not self._wake_standby_fn:
+            return jsonify({"error": "wake standby not available"}), 501
+        try:
+            self._wake_standby_fn()
+            self._state_cache = {"response": None, "ts": 0.0}
+            return jsonify({"ok": True}), 200
+        except Exception as e:
+            logger.exception("Wake standby error: %s", e)
+            return jsonify({"error": str(e)}), 500
+
     def _api_config(self):
         """Return client config (e.g. camera app base URL for fetching streams)."""
         return jsonify({
@@ -546,6 +582,8 @@ def run_dashboard(
     set_mode_fn=None,
     trigger_phase_fn=None,
     cancel_phase_fn=None,
+    sleep_standby_fn=None,
+    wake_standby_fn=None,
 ):
     """Create and run a DashboardServer in the current thread (call from daemon thread)."""
     server = DashboardServer(
@@ -553,5 +591,7 @@ def run_dashboard(
         set_mode_fn=set_mode_fn,
         trigger_phase_fn=trigger_phase_fn,
         cancel_phase_fn=cancel_phase_fn,
+        sleep_standby_fn=sleep_standby_fn,
+        wake_standby_fn=wake_standby_fn,
     )
     server.run(host=host, port=port)

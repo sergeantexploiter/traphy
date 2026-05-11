@@ -24,10 +24,44 @@
 				margin-bottom: 0.5rem;
 				flex-wrap: wrap;
 			}
+			.header-title-wrap {
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+				flex-wrap: wrap;
+			}
 			.header-row h1 {
 				margin: 0;
 				font-size: 1.5rem;
 				color: #7aa2f7;
+			}
+			.sleep-btn {
+				display: inline-flex;
+				align-items: center;
+				padding: 0.3rem 0.65rem;
+				font-size: 0.8rem;
+				font-weight: 600;
+				color: #e0af68;
+				background: #e0af6822;
+				border: 1px solid #e0af68;
+				border-radius: 4px;
+				cursor: pointer;
+				transition:
+					background 0.15s,
+					color 0.15s;
+			}
+			.sleep-btn:hover {
+				background: #e0af68;
+				color: #1a1b26;
+			}
+			.sleep-btn.wake-mode {
+				color: #9ece6a;
+				background: #9ece6a22;
+				border-color: #9ece6a;
+			}
+			.sleep-btn.wake-mode:hover {
+				background: #9ece6a;
+				color: #1a1b26;
 			}
 			h1 {
 				margin: 0 0 0.5rem 0;
@@ -302,6 +336,10 @@
 				border-radius: 8px;
 				padding: 1rem;
 				border: 1px solid #414868;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				text-align: center;
 			}
 			.seq-card.active {
 				border-color: #9ece6a;
@@ -318,11 +356,13 @@
 				margin: 0 0 0.5rem 0;
 				font-size: 0.85rem;
 				color: #a9b1d6;
+				width: 100%;
 			}
 			.seq-count {
 				margin-top: 0.5rem;
 				font-size: 0.75rem;
 				color: #7982a9;
+				width: 100%;
 			}
 			.seq-lights {
 				display: flex;
@@ -339,7 +379,7 @@
 				width: 40px;
 				height: 40px;
 				border-radius: 50%;
-				margin-top: 0.25rem;
+				flex-shrink: 0;
 			}
 			.seq-phase-dot.off {
 				background: #3b4261;
@@ -456,7 +496,10 @@
 		<div class="dashboard-layout">
 			<div class="dashboard-left">
 				<div class="header-row">
-					<h1>Traffic Coordinator — Live</h1>
+					<div class="header-title-wrap">
+						<h1>Traffic Coordinator — Live</h1>
+						<button type="button" id="sleep-btn" class="sleep-btn" title="Cancel all phases and turn all relays off (standby)" aria-label="Sleep">Sleep</button>
+					</div>
 					<div class="mode-toggle-wrap">
 						<span id="status-indicator" class="status-indicator idle" title="System status">Idle</span>
 						<button type="button" id="cancel-phase-btn" class="cancel-phase-btn" title="Cancel current phase and set all lights to red" aria-label="Cancel phase">Cancel Phase</button>
@@ -699,6 +742,21 @@
 					toggleEl.setAttribute("aria-label", mode === "manual" ? "Manual mode – click sequence or camera cards to trigger" : "Auto mode");
 				}
 				document.body.classList.toggle("manual-mode", mode === "manual");
+				document.body.classList.toggle("standby-mode", !!state.standby_mode);
+				var sleepBtn = document.getElementById("sleep-btn");
+				if (sleepBtn) {
+					if (state.standby_mode) {
+						sleepBtn.textContent = "Wake";
+						sleepBtn.title = "Exit standby — resume normal traffic light control (idle all-red)";
+						sleepBtn.setAttribute("aria-label", "Wake");
+						sleepBtn.classList.add("wake-mode");
+					} else {
+						sleepBtn.textContent = "Sleep";
+						sleepBtn.title = "Cancel all phases and turn all relays off (standby)";
+						sleepBtn.setAttribute("aria-label", "Sleep");
+						sleepBtn.classList.remove("wake-mode");
+					}
+				}
 				var ind = document.getElementById("status-indicator");
 				if (ind) {
 					if (state.standby_mode) {
@@ -800,6 +858,17 @@
 						errorEl.style.display = "block";
 					});
 			}
+
+			document.getElementById("sleep-btn").addEventListener("click", function () {
+				const isStandby = document.body.classList.contains("standby-mode");
+				const url = isStandby ? "/api/wake_standby" : "/api/sleep_standby";
+				fetch(url, { method: "POST", headers: { "Content-Type": "application/json" } })
+					.then((r) => r.json())
+					.then((data) => {
+						if (data.ok) poll();
+					})
+					.catch(() => {});
+			});
 
 			document.getElementById("cancel-phase-btn").addEventListener("click", function () {
 				if (!this.classList.contains("visible")) return;
