@@ -1,5 +1,21 @@
 # config.py
 """
+
+[Unit]
+Description=Smart Traffic Light Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=sigtwo
+WorkingDirectory=/home/sigtwo/relaysrv
+ExecStart=/usr/bin/python3 relay.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
 Shared configuration for the smart traffic light system. Used by coordinator,
 simulator, dashboard, and relay clients. Paths are relative to this package.
 
@@ -271,6 +287,8 @@ COORDINATOR_NARROW_BLOCK_SLEEP = 1.5
 COORDINATOR_IDLE_SLEEP = 2.0
 # Max seconds to wait for narrow_centre to clear after a phase (then proceed anyway).
 COORDINATOR_NARROW_CENTRE_MAX_WAIT = 120.0
+# Manual mode: initial green duration and each same-phase extend (dashboard trigger).
+MANUAL_GREEN_DURATION = 90.0
 
 # Relay HTTP: set True in production with proper server certs.
 RELAY_VERIFY_SSL = False
@@ -282,6 +300,14 @@ RELAY_TIMEOUT = 5
 # Use 5001+ on macOS (Monterey+) to avoid AirPlay Receiver on 5000.
 DASHBOARD_PORT = 5000
 DASHBOARD_HOST = "192.168.0.11"
+# If the dashboard HTTP port cannot be bound, run REBOOT_COMMAND (relays off first). Ignored when DRY_RUN.
+REBOOT_ON_DASHBOARD_LISTEN_FAIL = True
+REBOOT_DELAY_SECONDS = 5.0
+# Command for reboot: list argv (preferred) or shell string, e.g. ["sudo", "reboot"] or "sudo reboot"
+REBOOT_COMMAND = ["sudo", "reboot", "now"]
+# Dashboard "Shutdown" button: relays off, then run SHUTDOWN_COMMAND. Ignored when DRY_RUN.
+SHUTDOWN_DELAY_SECONDS = 5.0
+SHUTDOWN_COMMAND = ["sudo", "shutdown", "now"]
 
 # -----------------------------------------------------------------------------
 # Camera streaming app — separate process or thread on its own port.

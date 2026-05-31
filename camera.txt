@@ -1,16 +1,16 @@
 HOME <= 
 [
-        {"id": "north_left", "label": "north_left", "sequence": "seq3", "recording": True, 
+        {"id": "north_left", "label": "north_left", "sequence": "seq3", "recording": False, 
             "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "north_right", "label": "north_right", "sequence": "seq2","recording": True, 
+        {"id": "north_right", "label": "north_right", "sequence": "seq2","recording": False, 
             "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "narrow_centre_1", "label": "narrow_centre_1", "sequence": None,"recording": True, 
+        {"id": "narrow_centre_1", "label": "narrow_centre_1", "sequence": None,"recording": False, 
             "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "narrow_centre_2", "label": "narrow_centre_2", "sequence": None,"recording": True, 
+        {"id": "narrow_centre_2", "label": "narrow_centre_2", "sequence": None,"recording": False, 
             "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "south_left", "label": "south_left", "sequence": "seq1","recording": True, 
+        {"id": "south_left", "label": "south_left", "sequence": "seq1","recording": False, 
             "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
-        {"id": "south_right", "label": "south_right", "sequence": "seq1","recording": True, 
+        {"id": "south_right", "label": "south_right", "sequence": "seq1","recording": False, 
             "url": "rtsp://admin:SPLOIT4life@192.168.1.126:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif"},
     ]
 

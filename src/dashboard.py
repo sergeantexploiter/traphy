@@ -258,6 +258,7 @@ class DashboardServer:
         cancel_phase_fn=None,
         sleep_standby_fn=None,
         wake_standby_fn=None,
+        shutdown_fn=None,
     ):
         self._get_state        = get_state_fn
         self._cache_ttl        = cache_ttl
@@ -267,6 +268,7 @@ class DashboardServer:
         self._cancel_phase_fn  = cancel_phase_fn
         self._sleep_standby_fn = sleep_standby_fn
         self._wake_standby_fn  = wake_standby_fn
+        self._shutdown_fn      = shutdown_fn
         self.app               = self._create_app()
 
     def _create_app(self):
@@ -284,6 +286,7 @@ class DashboardServer:
         app.add_url_rule("/api/cancel_phase",       "api_cancel_phase",  self._api_cancel_phase,  methods=["POST"])
         app.add_url_rule("/api/sleep_standby",      "api_sleep_standby", self._api_sleep_standby, methods=["POST"])
         app.add_url_rule("/api/wake_standby",       "api_wake_standby",  self._api_wake_standby,  methods=["POST"])
+        app.add_url_rule("/api/shutdown",           "api_shutdown",      self._api_shutdown,      methods=["POST"])
         app.add_url_rule("/health",                 "health",         self._health)
 
         @app.before_request
@@ -451,6 +454,10 @@ class DashboardServer:
                 "last_served":                  state.get("last_served", {}),
                 "phase_start_time":              state.get("phase_start_time", 0),
                 "assigned_green_duration":      state.get("assigned_green_duration", 0),
+                "green_elapsed_seconds":        state.get("green_elapsed_seconds", 0),
+                "yellow_elapsed_seconds":       state.get("yellow_elapsed_seconds", 0),
+                "server_time":                  state.get("server_time", now),
+                "manual_green_duration":        state.get("manual_green_duration", 90.0),
                 "current_phase_trigger_count":   state.get("current_phase_trigger_count", 0),
                 "last_heartbeat":                state.get("last_heartbeat", now),
                 "decision":                     decision,
@@ -536,6 +543,18 @@ class DashboardServer:
             logger.exception("Wake standby error: %s", e)
             return jsonify({"error": str(e)}), 500
 
+    def _api_shutdown(self):
+        """POST: turn relays off and shut down the coordinator host."""
+        if not self._shutdown_fn:
+            return jsonify({"error": "shutdown not available"}), 501
+        try:
+            self._shutdown_fn()
+            self._state_cache = {"response": None, "ts": 0.0}
+            return jsonify({"ok": True, "message": "Shutdown initiated"}), 200
+        except Exception as e:
+            logger.exception("Shutdown error: %s", e)
+            return jsonify({"error": str(e)}), 500
+
     def _api_config(self):
         """Return client config (e.g. camera app base URL for fetching streams)."""
         return jsonify({
@@ -547,8 +566,13 @@ class DashboardServer:
 
     # ── Runner ───────────────────────────────────────────────────────────────
 
-    def run(self, host: str = "0.0.0.0", port: int = 5001):
-        """Start MJPEG proxies and Flask server. Call from a daemon thread."""
+    def run(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 5001,
+        on_listen_fail=None,
+    ):
+        """Start Flask server. Call from a daemon thread. on_listen_fail(host, port, exc) if bind fails."""
         if not (STATIC_DIR / "dashboard.html").exists():
             logger.error(
                 "Dashboard static file missing at %s — dashboard will not start.",
@@ -559,16 +583,28 @@ class DashboardServer:
         logger.info("Dashboard starting on http://%s:%s/ (camera streams on CAMERA_APP_PORT)", host, port)
 
         try:
-            from waitress import serve  # type: ignore
+            from waitress import create_server  # type: ignore
+
             logger.info("Using waitress (production server)")
-            # Need enough threads for 8+ MJPEG streams plus /api/state polling; default is 4.
-            serve(self.app, host=host, port=port, threads=14)
+            server = create_server(self.app, host=host, port=port, threads=14)
+            server.run()
         except ImportError:
             logger.warning(
                 "waitress not installed — using Flask dev server. "
                 "Install with: pip install waitress"
             )
-            self.app.run(host=host, port=port, threaded=True, use_reloader=False)
+            try:
+                self.app.run(host=host, port=port, threaded=True, use_reloader=False)
+            except OSError as e:
+                if on_listen_fail:
+                    on_listen_fail(host, port, e)
+                else:
+                    logger.exception("Dashboard failed to bind %s:%s", host, port)
+        except OSError as e:
+            if on_listen_fail:
+                on_listen_fail(host, port, e)
+            else:
+                logger.exception("Dashboard failed to bind %s:%s", host, port)
 
 
 # -----------------------------------------------------------------------------
@@ -584,6 +620,8 @@ def run_dashboard(
     cancel_phase_fn=None,
     sleep_standby_fn=None,
     wake_standby_fn=None,
+    shutdown_fn=None,
+    on_listen_fail=None,
 ):
     """Create and run a DashboardServer in the current thread (call from daemon thread)."""
     server = DashboardServer(
@@ -593,5 +631,6 @@ def run_dashboard(
         cancel_phase_fn=cancel_phase_fn,
         sleep_standby_fn=sleep_standby_fn,
         wake_standby_fn=wake_standby_fn,
+        shutdown_fn=shutdown_fn,
     )
-    server.run(host=host, port=port)
+    server.run(host=host, port=port, on_listen_fail=on_listen_fail)

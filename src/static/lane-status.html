@@ -261,10 +261,12 @@
             lightGreen.classList.add('on'); lightGreen.classList.remove('off');
             statusTextEl.textContent = 'Green — go';
             statusTextEl.className = 'status-text green';
-            const start = state.phase_start_time || 0;
-            const total = state.assigned_green_duration || 0;
-            const now = Date.now() / 1000;
-            const elapsed = Math.max(0, now - start);
+            const total = state.assigned_green_duration > 0
+              ? state.assigned_green_duration
+              : (state.manual_green_duration != null ? state.manual_green_duration : 90);
+            const elapsed = state.green_elapsed_seconds != null && state.green_elapsed_seconds >= 0 && state.green_elapsed_seconds < 86400
+              ? state.green_elapsed_seconds
+              : Math.max(0, (state.server_time || Date.now() / 1000) - (state.phase_start_time || 0));
             const left = Math.max(0, total - elapsed);
             timeRemainingEl.textContent = total > 0 ? `About ${left.toFixed(0)}s green remaining` : '';
             return;
@@ -276,10 +278,10 @@
             lightGreen.classList.remove('on'); lightGreen.classList.add('off');
             statusTextEl.textContent = 'Yellow — clear the intersection';
             statusTextEl.className = 'status-text yellow';
-            const start = state.yellow_start_time || 0;
             const total = state.yellow_duration || 3;
-            const now = Date.now() / 1000;
-            const elapsed = Math.max(0, now - start);
+            const elapsed = state.yellow_elapsed_seconds != null && state.yellow_elapsed_seconds >= 0 && state.yellow_elapsed_seconds < 86400
+              ? state.yellow_elapsed_seconds
+              : Math.max(0, (state.server_time || Date.now() / 1000) - (state.yellow_start_time || 0));
             const left = Math.max(0, total - elapsed);
             timeRemainingEl.textContent = `About ${left.toFixed(0)}s yellow remaining`;
             return;

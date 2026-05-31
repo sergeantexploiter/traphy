@@ -3,7 +3,7 @@
 # Priority: one RTSP + one ffmpeg → MJPEG only for the live stream. Optional recording: same JPEG frames
 # copied via a bounded non-blocking queue to a second ffmpeg (stdin MJPEG → H.264 segments); slow disk/encode
 # drops recording frames only, never blocks streaming.
-# Capture starts at app boot; clients get /stream/<id> on demand.
+# RTSP/ffmpeg starts on first /stream/<id> client and stops when the last client disconnects (saves CPU when idle).
 # Run standalone: python -m src.camera_app (or import run() from a thread).
 # SIGINT/SIGTERM: stops proxies, joins recording threads (ffmpeg stdin EOF → finalize segments), then stops Waitress.
 # Avoid SIGKILL while recording — it cannot flush the current segment.
@@ -71,6 +71,10 @@ class MJPEGProxy:
         self._frame = None
         self._running = False
         self._thread = None
+        self._stream_proc_lock = threading.Lock()
+        self._capture_proc: Optional[subprocess.Popen] = None
+        self._viewers_lock = threading.Lock()
+        self._stream_viewers = 0
         self._record_enabled = bool(record_enabled)
         self._record_queue: Optional[queue.Queue] = None
         self._record_thread: Optional[threading.Thread] = None
@@ -110,6 +114,20 @@ class MJPEGProxy:
         """Stop capture and recording. Recording ffmpeg gets EOF on stdin so segments can finalize."""
         self._running = False
         self._record_running = False
+        with self._stream_proc_lock:
+            cap = self._capture_proc
+        if cap is not None and cap.poll() is None:
+            try:
+                cap.terminate()
+                cap.wait(timeout=12)
+            except subprocess.TimeoutExpired:
+                try:
+                    cap.kill()
+                    cap.wait(timeout=5)
+                except OSError:
+                    pass
+            except OSError:
+                pass
         if self._record_queue is not None:
             try:
                 self._record_queue.put_nowait(None)
@@ -122,6 +140,9 @@ class MJPEGProxy:
                     self._record_queue.put_nowait(None)
                 except queue.Full:
                     pass
+        t = self._thread
+        if t is not None and t.is_alive():
+            t.join(timeout=25.0)
 
     def join_recording_thread(self, timeout: float = 120.0) -> None:
         """Wait for the recording writer to close ffmpeg cleanly (call after stop())."""
@@ -302,6 +323,8 @@ class MJPEGProxy:
                     stderr=subprocess.DEVNULL,
                     bufsize=0,
                 )
+                with self._stream_proc_lock:
+                    self._capture_proc = proc
                 buf = b""
                 SOI = b"\xff\xd8"
                 EOI = b"\xff\xd9"
@@ -333,6 +356,9 @@ class MJPEGProxy:
             except Exception as e:
                 logger.warning("MJPEG capture error (%s): %s — restarting", self.cam_id, e)
             finally:
+                with self._stream_proc_lock:
+                    if self._capture_proc is proc:
+                        self._capture_proc = None
                 if proc and proc.poll() is None:
                     try:
                         proc.terminate()
@@ -392,15 +418,30 @@ def api_cameras():
     return jsonify({"cameras": cameras})
 
 
+def _mjpeg_stream_with_viewers(proxy: MJPEGProxy):
+    """Start capture on first viewer; stop RTSP/ffmpeg when the last client disconnects."""
+    with proxy._viewers_lock:
+        proxy._stream_viewers += 1
+        if proxy._stream_viewers == 1:
+            proxy.start()
+    try:
+        yield from proxy.stream()
+    finally:
+        with proxy._viewers_lock:
+            proxy._stream_viewers -= 1
+            if proxy._stream_viewers == 0:
+                logger.info("Last viewer left %s — stopping stream pipeline", proxy.cam_id)
+                proxy.stop()
+
+
 @app.route("/stream/<cam_id>")
 def stream(cam_id: str):
-    """MJPEG proxy stream. Capture starts at app boot; start() is idempotent."""
+    """MJPEG proxy stream; RTSP capture runs only while at least one client is connected."""
     proxy = _proxies.get(cam_id)
     if not proxy:
         return Response("Camera not found or not configured", status=404)
-    proxy.start()
     return Response(
-        proxy.stream(),
+        _mjpeg_stream_with_viewers(proxy),
         mimetype="multipart/x-mixed-replace; boundary=mjpegframe",
     )
 
@@ -411,7 +452,7 @@ def health():
 
 
 def start_all_camera_proxies():
-    """Start RTSP capture (and optional recording) for every configured camera at app boot."""
+    """Start RTSP capture for every camera (optional warm-up; not called on normal app start)."""
     for cam_id, proxy in _proxies.items():
         try:
             proxy.start()
@@ -466,9 +507,8 @@ def run(host: str = None, port: int = None):
     global _waitress_server
     host = host or getattr(config, "CAMERA_APP_HOST", "0.0.0.0")
     port = port or getattr(config, "CAMERA_APP_PORT", 5004)
-    start_all_camera_proxies()
     logger.info(
-        "Camera app on http://%s:%s/ (%s cameras; stream=1× RTSP/ffmpeg, recording=optional 2nd ffmpeg + queue)",
+        "Camera app on http://%s:%s/ (%s cameras; RTSP starts on /stream/<id> request, stops when idle)",
         host,
         port,
         len(_proxies),

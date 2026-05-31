@@ -10,6 +10,7 @@ Flow:
   - run_phase(): current sequence green → yellow → red (other sequences stay red); then wait narrow clear.
   - Relay state is driven by PHASES green_keys/yellow_keys/red_keys and RELAY_MAPPINGS (one batch per server).
 """
+import subprocess
 import time
 import logging
 import signal
@@ -302,8 +303,8 @@ def run_phase(phase_key):
         apply_relay_state(force=True)
         phase_start_time = time.time()
 
-        # Step 2: Green duration — manual: from config (or 30s); auto: from density. Manual: same-phase click extends by MANUAL_GREEN_DURATION.
-        MANUAL_GREEN_DURATION = getattr(config, "MANUAL_GREEN_DURATION", 30.0)
+        # Step 2: Green duration — manual: MANUAL_GREEN_DURATION; auto: from density. Manual: same-phase click extends.
+        MANUAL_GREEN_DURATION = getattr(config, "MANUAL_GREEN_DURATION", 90.0)
         with _control_lock:
             is_manual = control_mode == "manual"
         if is_manual:
@@ -493,6 +494,58 @@ def select_next_phase():
 
     return None
 
+def _execute_system_command(cmd) -> None:
+    """Run configured host command (list argv or shell string)."""
+    logger.critical("Executing system command: %s", cmd)
+    try:
+        if isinstance(cmd, str):
+            subprocess.run(cmd, shell=True, check=False)
+        else:
+            subprocess.run(list(cmd), check=False)
+    except Exception as e:
+        logger.error("System command failed: %s", e)
+
+
+def _run_power_off_sequence(command, delay_seconds: float, label: str) -> None:
+    """Turn relays off, disconnect MQTT, run command, exit (for reboot/shutdown)."""
+    global _shutdown
+    _shutdown = True
+    logger.info("Turning off all relays before %s", label)
+    force_all_relays_off()
+    if delay_seconds > 0:
+        time.sleep(delay_seconds)
+    try:
+        client.disconnect()
+        client.loop_stop()
+    except Exception:
+        pass
+    _execute_system_command(command)
+    sys.exit(0 if label == "shutdown" else 1)
+
+
+def _handle_dashboard_listen_fail(host: str, port: int, exc: BaseException) -> None:
+    """Dashboard HTTP bind failed — optionally turn relays off and reboot the host."""
+    global _shutdown
+    logger.critical(
+        "Dashboard cannot listen on %s:%s — %s: %s",
+        host,
+        port,
+        type(exc).__name__,
+        exc,
+    )
+    if getattr(config, "DRY_RUN", False):
+        logger.warning("DRY_RUN: not rebooting after dashboard listen failure")
+        return
+    if not getattr(config, "REBOOT_ON_DASHBOARD_LISTEN_FAIL", False):
+        logger.error(
+            "Set REBOOT_ON_DASHBOARD_LISTEN_FAIL = True in config to reboot on port bind failure"
+        )
+        return
+    cmd = getattr(config, "REBOOT_COMMAND", ["sudo", "reboot"])
+    delay = float(getattr(config, "REBOOT_DELAY_SECONDS", 5.0))
+    _run_power_off_sequence(cmd, delay, "reboot")
+
+
 def _shutdown_handler(signum, frame):
     """On SIGINT/SIGTERM: set _shutdown, all relays off, disconnect MQTT, exit."""
     global _shutdown
@@ -608,8 +661,30 @@ def request_wake_standby():
     logger.info(">>> Wake — exit standby requested <<<")
 
 
+def request_system_shutdown():
+    """Power off the coordinator host (dashboard 'Shutdown' after confirmation)."""
+    if getattr(config, "DRY_RUN", False):
+        logger.warning(">>> Shutdown requested — DRY_RUN: not executing SHUTDOWN_COMMAND <<<")
+        return
+    cmd = getattr(config, "SHUTDOWN_COMMAND", ["sudo", "shutdown", "-h", "now"])
+    delay = float(getattr(config, "SHUTDOWN_DELAY_SECONDS", 5.0))
+    logger.critical(">>> Shutdown requested from dashboard — relays off, then power off <<<")
+
+    def _do_shutdown():
+        _run_power_off_sequence(cmd, delay, "shutdown")
+
+    threading.Thread(target=_do_shutdown, name="system-shutdown", daemon=False).start()
+
+
 def _dashboard_get_state():
     """Return a JSON-serializable state snapshot for the live dashboard (relay state, phases, data, timing)."""
+    now = time.time()
+    green_elapsed = 0.0
+    yellow_elapsed = 0.0
+    if phase_sub_state == "green" and phase_start_time > 0:
+        green_elapsed = max(0.0, now - phase_start_time)
+    elif phase_sub_state == "yellow" and yellow_start_time > 0:
+        yellow_elapsed = max(0.0, now - yellow_start_time)
     return {
         "last_relay_state": {s: list(ids) for s, ids in last_relay_state.items()},
         "relay_mappings": {k: [s, r] for k, (s, r) in config.RELAY_MAPPINGS.items()},
@@ -629,11 +704,15 @@ def _dashboard_get_state():
         "last_served": dict(last_served),
         "phase_start_time": phase_start_time,
         "assigned_green_duration": assigned_green_duration,
+        "green_elapsed_seconds": green_elapsed,
+        "yellow_elapsed_seconds": yellow_elapsed,
+        "server_time": now,
         "current_phase_trigger_count": current_phase_trigger_count,
         "control_mode": control_mode,
         "phase_sub_state": phase_sub_state,
         "yellow_start_time": yellow_start_time,
         "yellow_duration": getattr(config, "COORDINATOR_YELLOW_DURATION", 3.0),
+        "manual_green_duration": getattr(config, "MANUAL_GREEN_DURATION", 90.0),
         "standby_mode": standby_mode,
     }
 
@@ -655,6 +734,8 @@ try:
             "cancel_phase_fn": cancel_phase,
             "sleep_standby_fn": request_sleep_standby,
             "wake_standby_fn": request_wake_standby,
+            "shutdown_fn": request_system_shutdown,
+            "on_listen_fail": _handle_dashboard_listen_fail,
         },
         daemon=True,
     )

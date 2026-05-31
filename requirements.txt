@@ -12,5 +12,8 @@ numpy>=1.24.0
 filterpy>=1.4.5
 scipy>=1.10.0
 
+# MQTT (src/lane_detector.py edge publisher, coordinator, simulator)
+paho-mqtt>=1.6.0
+
 # License plate recognition (optional; disable in config to skip)
 easyocr>=1.7.0
