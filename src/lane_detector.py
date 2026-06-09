@@ -369,6 +369,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=1.0, help="Seconds between MQTT publishes.")
     p.add_argument("--aggregate", default="max", choices=["max", "mean", "last"],
                    help="How to aggregate occupancy over the interval (default max = peak demand).")
+    p.add_argument("--zero-hold", type=float, default=3.0,
+                   help="On a drop to 0, keep publishing the last positive value for this many seconds "
+                        "(debounces brief detection dropouts). A non-zero value publishes instantly. 0 = disabled.")
 
     # Misc
     p.add_argument("--show", action="store_true", help="Show an OpenCV window (needs a display).")
@@ -491,6 +494,8 @@ def main() -> None:
     frame = None
     tracks = np.empty((0, 5))
     occupancy = 0
+    last_sent_value = None   # last value actually published (for zero-hold debounce)
+    zero_hold_since = None   # time the raw value first hit 0 while holding a positive value
 
     try:
         while running["on"]:
@@ -555,10 +560,31 @@ def main() -> None:
 
                 now = time.time()
                 if now - last_publish >= args.interval:
-                    value = aggregate(samples, args.aggregate)
-                    publisher.publish(value)
-                    logger.info("lane=%s occupancy=%d (window n=%d, count_line=%d, stop_line=%d)",
-                                args.lane, value, len(samples), crossing_count, stop_crossing_count)
+                    raw_value = aggregate(samples, args.aggregate)
+
+                    # Falling-edge-to-zero debounce: when the value would drop to 0, keep
+                    # publishing the last positive value for --zero-hold seconds so a brief
+                    # detection dropout doesn't tell the coordinator the lane is empty.
+                    # Any positive reading (or a value already at 0) publishes immediately.
+                    out_value = raw_value
+                    if args.zero_hold > 0 and raw_value == 0 and (last_sent_value or 0) > 0:
+                        if zero_hold_since is None:
+                            zero_hold_since = now
+                        if now - zero_hold_since >= args.zero_hold:
+                            out_value = 0
+                            zero_hold_since = None
+                        else:
+                            out_value = last_sent_value  # hold previous positive value
+                    else:
+                        zero_hold_since = None
+
+                    publisher.publish(out_value)
+                    hold_note = ""
+                    if out_value != raw_value and zero_hold_since is not None:
+                        hold_note = f" [hold {out_value}; raw=0 {now - zero_hold_since:.1f}/{args.zero_hold:.0f}s]"
+                    logger.info("lane=%s value=%d%s (window n=%d, count_line=%d, stop_line=%d)",
+                                args.lane, out_value, hold_note, len(samples), crossing_count, stop_crossing_count)
+                    last_sent_value = out_value
                     samples.clear()
                     last_publish = now
 
@@ -566,9 +592,13 @@ def main() -> None:
 
             if args.show:
                 if frame is not None:
+                    hold_remaining = 0.0
+                    if zero_hold_since is not None:
+                        hold_remaining = max(0.0, args.zero_hold - (time.time() - zero_hold_since))
                     disp = frame.copy()
                     _draw_overlay(disp, tracks, roi_points, count_line, stop_line,
                                   occupancy, count_key, crossing_count, stop_crossing_count,
+                                  published_value=last_sent_value, hold_remaining=hold_remaining,
                                   paused=paused, frame_idx=displayed_idx, total_frames=total_frames,
                                   seekable=seekable)
                     if seekable and total_frames > 1 and displayed_idx >= 0:
@@ -615,6 +645,7 @@ _GREEN = (0, 255, 0)
 _BLUE = (255, 128, 0)
 _CYAN = (255, 255, 0)
 _RED = (0, 0, 255)
+_AMBER = (0, 200, 255)  # active zero-hold indicator
 
 
 def _label(frame, text, org, color, scale=0.7, thickness=2):
@@ -626,7 +657,8 @@ def _label(frame, text, org, color, scale=0.7, thickness=2):
 
 
 def _draw_overlay(frame, tracks, roi_points, count_line, stop_line, occupancy, count_key,
-                  crossings, stop_crossings, paused=False, frame_idx=-1, total_frames=0, seekable=False):
+                  crossings, stop_crossings, published_value=None, hold_remaining=0.0,
+                  paused=False, frame_idx=-1, total_frames=0, seekable=False):
     for tr in tracks:
         x1, y1, x2, y2 = int(tr[0]), int(tr[1]), int(tr[2]), int(tr[3])
         cv2.rectangle(frame, (x1, y1), (x2, y2), _GREEN, 2)
@@ -638,15 +670,26 @@ def _draw_overlay(frame, tracks, roi_points, count_line, stop_line, occupancy, c
     if stop_line and len(stop_line) == 2:
         cv2.line(frame, tuple(map(int, stop_line[0])), tuple(map(int, stop_line[1])), _RED, 2)
 
-    _label(frame, f"{count_key}: {occupancy}", (10, 34), _GREEN, scale=0.8, thickness=2)
-    _label(frame, f"count line crossings: {crossings}", (10, 66), _BLUE, scale=0.6, thickness=2)
-    _label(frame, f"stop line crossings: {stop_crossings}", (10, 92), _GREEN, scale=0.6, thickness=2)
+    # Live, per-frame detection count.
+    _label(frame, f"live: {occupancy}", (10, 34), _GREEN, scale=0.8, thickness=2)
+
+    # Published value (after the zero-hold debounce). Turns amber and shows a countdown while holding.
+    # Shows -1 until the first publish so it's clear nothing has been sent yet.
+    pub = published_value if published_value is not None else -1
+    holding = hold_remaining and hold_remaining > 0
+    pub_text = f"published: {pub}"
+    if holding:
+        pub_text += f"  (HOLD {hold_remaining:.1f}s)"
+    _label(frame, pub_text, (10, 70), _AMBER if holding else _BLUE, scale=0.8, thickness=2)
+
+    _label(frame, f"count line crossings: {crossings}", (10, 102), _BLUE, scale=0.6, thickness=2)
+    _label(frame, f"stop line crossings: {stop_crossings}", (10, 128), _GREEN, scale=0.6, thickness=2)
 
     if seekable and frame_idx >= 0:
         total = total_frames if total_frames > 0 else "?"
-        _label(frame, f"frame {frame_idx + 1}/{total}", (10, 118), _CYAN, scale=0.55, thickness=1)
+        _label(frame, f"frame {frame_idx + 1}/{total}", (10, 154), _CYAN, scale=0.55, thickness=1)
     if paused:
-        _label(frame, "PAUSED  (space=resume  n/p=step  g=goto)", (10, 144), _RED, scale=0.55, thickness=2)
+        _label(frame, "PAUSED  (space=resume  n/p=step  g=goto)", (10, 180), _RED, scale=0.55, thickness=2)
 
 
 if __name__ == "__main__":

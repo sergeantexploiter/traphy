@@ -15,5 +15,9 @@ scipy>=1.10.0
 # MQTT (src/lane_detector.py edge publisher, coordinator, simulator)
 paho-mqtt>=1.6.0
 
-# License plate recognition (optional; disable in config to skip)
+# License plate recognition / ANPR (src/plate_reader.py, vehicle/main.py)
+# EasyOCR is the default OCR engine (pulls in torch, already needed by ultralytics).
 easyocr>=1.7.0
+# Optional alternative OCR engine for plate_reader.py --ocr tesseract
+# (also needs the system 'tesseract' binary: brew install tesseract / apt install tesseract-ocr)
+# pytesseract>=0.3.10

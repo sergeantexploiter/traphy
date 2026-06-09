@@ -336,6 +336,20 @@ CAMERA_RECORD_RETENTION_DAYS = 30
 CAMERA_RECORD_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 
 # -----------------------------------------------------------------------------
+# License plate reader (src/plate_reader.py) — two-stage ANPR defaults.
+# All are overridable via CLI flags; the script reads them with getattr fallbacks.
+# -----------------------------------------------------------------------------
+# Vehicle detector weights (shared with lane_detector.py).
+YOLO_MODEL = "yolov8n.pt"
+# Dedicated YOLOv8 license-plate weights. None => auto-detect models/license_plate_detector.pt,
+# else fall back to the classic OpenCV localizer (less reliable).
+PLATE_MODEL = None
+PLATE_DETECT_CONF = 0.25          # plate-detection confidence threshold (model only)
+PLATE_OCR_ENGINE = "easyocr"      # "easyocr" | "tesseract" | "none" (localize only)
+PLATE_OCR_LANGS = ["en"]          # EasyOCR languages
+PLATE_MIN_OCR_CONF = 0.3          # keep a read only above this confidence
+
+# -----------------------------------------------------------------------------
 # Lamp/signal id -> (server, relay_id). Used by coordinator and dashboard.
 # -----------------------------------------------------------------------------
 RELAY_MAPPINGS = {

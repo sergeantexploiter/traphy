@@ -1,386 +1,474 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Your lane status</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      margin: 0;
-      padding: 1rem;
-      background: #1a1b26;
-      color: #c0caf5;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-    h1 { font-size: 1.5rem; color: #7aa2f7; margin: 0 0 1rem 0; }
-    .card {
-      background: #24283b;
-      border-radius: 12px;
-      padding: 1.5rem;
-      border: 1px solid #414868;
-      max-width: 360px;
-      width: 100%;
-      text-align: center;
-    }
-    .seq-box {
-      background: #1e2030;
-      border-radius: 10px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 1rem;
-      border: 1px solid #414868;
-      text-align: center;
-    }
-    .seq-box h2 {
-      margin: 0 0 0.5rem 0;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: #565f89;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .seq-box .seq-label {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: #c0caf5;
-      margin-bottom: 0.75rem;
-    }
-    .seq-phase-dot {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      margin: 0 auto;
-      transition: background 0.2s, box-shadow 0.2s;
-    }
-    .seq-phase-dot.off {
-      background: #3b4261;
-      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
-    }
-    .seq-phase-dot.green {
-      background: #9ece6a;
-      box-shadow: 0 0 20px rgba(158, 206, 106, 0.55);
-    }
-    .seq-phase-dot.yellow {
-      background: #e0af68;
-      box-shadow: 0 0 20px rgba(224, 175, 104, 0.55);
-    }
-    .seq-phase-dot.red {
-      background: #f7768e;
-      box-shadow: 0 0 20px rgba(247, 118, 142, 0.45);
-    }
-    .session-note {
-      font-size: 0.75rem;
-      color: #565f89;
-      margin-top: 0.5rem;
-      line-height: 1.35;
-    }
-    .lights {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-      margin: 1rem 0;
-    }
-    .light {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      border: 3px solid #414868;
-      transition: box-shadow 0.2s, background 0.2s;
-    }
-    .light.red.off { background: #3b3f5c; }
-    .light.red.on { background: #f7768e; box-shadow: 0 0 16px #f7768e; }
-    .light.yellow.off { background: #3b3f5c; }
-    .light.yellow.on { background: #e0af68; box-shadow: 0 0 16px #e0af68; }
-    .light.green.off { background: #3b3f5c; }
-    .light.green.on { background: #9ece6a; box-shadow: 0 0 16px #9ece6a; }
-    .status-text { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.25rem 0; }
-    .status-text.green { color: #9ece6a; }
-    .status-text.yellow { color: #e0af68; }
-    .status-text.red { color: #f7768e; }
-    .time-remaining { font-size: 1rem; color: #a9b1d6; margin-bottom: 0.5rem; }
-    .message { font-size: 0.9rem; color: #565f89; margin-top: 1rem; }
-    .error { color: #f7768e; }
-    .small { font-size: 0.8rem; color: #565f89; margin-top: 0.5rem; }
-  </style>
-</head>
-<body>
-  <h1>Your lane status</h1>
-  <div class="card">
-    <div id="waiting" class="message">Loading lane map…</div>
-    <div id="lane-ui" style="display:none;">
-      <div class="seq-box" id="seq-box">
-        <h2>Your sequence</h2>
-        <div class="seq-label" id="seq-label">—</div>
-        <div id="seq-phase-dot" class="seq-phase-dot off" title="Phase"></div>
-        <p class="session-note" id="session-note">Sequence was set from one GPS reading when this page loaded.</p>
-      </div>
-      <div class="lights">
-        <div id="light-red" class="light red off" title="Red"></div>
-        <div id="light-yellow" class="light yellow off" title="Yellow"></div>
-        <div id="light-green" class="light green off" title="Green"></div>
-      </div>
-      <p id="status-text" class="status-text red">—</p>
-      <p id="time-remaining" class="time-remaining"></p>
-      <p id="coords" class="small"></p>
-    </div>
-    <div id="error" class="message error" style="display:none;"></div>
-  </div>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Your lane status</title>
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				font-family: "Segoe UI", system-ui, sans-serif;
+				margin: 0;
+				padding: 1rem;
+				background: #1a1b26;
+				color: #c0caf5;
+				min-height: 100vh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+			}
+			h1 {
+				font-size: 1.5rem;
+				color: #7aa2f7;
+				margin: 0 0 1rem 0;
+			}
+			.card {
+				background: #24283b;
+				border-radius: 12px;
+				padding: 1.5rem;
+				border: 1px solid #414868;
+				max-width: 360px;
+				width: 100%;
+				text-align: center;
+			}
+			.seq-box {
+				background: #1e2030;
+				border-radius: 10px;
+				padding: 1rem 1.25rem;
+				margin-bottom: 1rem;
+				border: 1px solid #414868;
+				text-align: center;
+			}
+			.seq-box h2 {
+				margin: 0 0 0.5rem 0;
+				font-size: 0.8rem;
+				font-weight: 600;
+				color: #565f89;
+				text-transform: uppercase;
+				letter-spacing: 0.04em;
+			}
+			.seq-box .seq-label {
+				font-size: 1.15rem;
+				font-weight: 700;
+				color: #c0caf5;
+				margin-bottom: 0.75rem;
+			}
+			.seq-phase-dot {
+				width: 48px;
+				height: 48px;
+				border-radius: 50%;
+				margin: 0 auto;
+				transition:
+					background 0.2s,
+					box-shadow 0.2s;
+			}
+			.seq-phase-dot.off {
+				background: #3b4261;
+				box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+			}
+			.seq-phase-dot.green {
+				background: #9ece6a;
+				box-shadow: 0 0 20px rgba(158, 206, 106, 0.55);
+			}
+			.seq-phase-dot.yellow {
+				background: #e0af68;
+				box-shadow: 0 0 20px rgba(224, 175, 104, 0.55);
+			}
+			.seq-phase-dot.red {
+				background: #f7768e;
+				box-shadow: 0 0 20px rgba(247, 118, 142, 0.45);
+			}
+			.session-note {
+				font-size: 0.75rem;
+				color: #565f89;
+				margin-top: 0.5rem;
+				line-height: 1.35;
+			}
+			.lights {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 8px;
+				margin: 1rem 0;
+			}
+			.light {
+				width: 56px;
+				height: 56px;
+				border-radius: 50%;
+				border: 3px solid #414868;
+				transition:
+					box-shadow 0.2s,
+					background 0.2s;
+			}
+			.light.red.off {
+				background: #3b3f5c;
+			}
+			.light.red.on {
+				background: #f7768e;
+				box-shadow: 0 0 16px #f7768e;
+			}
+			.light.yellow.off {
+				background: #3b3f5c;
+			}
+			.light.yellow.on {
+				background: #e0af68;
+				box-shadow: 0 0 16px #e0af68;
+			}
+			.light.green.off {
+				background: #3b3f5c;
+			}
+			.light.green.on {
+				background: #9ece6a;
+				box-shadow: 0 0 16px #9ece6a;
+			}
+			.status-text {
+				font-size: 1.25rem;
+				font-weight: 700;
+				margin: 0.75rem 0 0.25rem 0;
+			}
+			.status-text.green {
+				color: #9ece6a;
+			}
+			.status-text.yellow {
+				color: #e0af68;
+			}
+			.status-text.red {
+				color: #f7768e;
+			}
+			.time-remaining {
+				font-size: 1rem;
+				color: #a9b1d6;
+				margin-bottom: 0.5rem;
+			}
+			.message {
+				font-size: 0.9rem;
+				color: #565f89;
+				margin-top: 1rem;
+			}
+			.error {
+				color: #f7768e;
+			}
+			.small {
+				font-size: 0.8rem;
+				color: #565f89;
+				margin-top: 0.5rem;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Your lane status</h1>
+		<div class="card">
+			<div id="waiting" class="message">Loading lane map…</div>
+			<div id="lane-ui" style="display: none">
+				<div class="seq-box" id="seq-box">
+					<h2>Your sequence</h2>
+					<div class="seq-label" id="seq-label">—</div>
+					<div id="seq-phase-dot" class="seq-phase-dot off" title="Phase"></div>
+					<p class="session-note" id="session-note">Sequence was set from one GPS reading when this page loaded.</p>
+				</div>
+				<div class="lights">
+					<div id="light-red" class="light red off" title="Red"></div>
+					<div id="light-yellow" class="light yellow off" title="Yellow"></div>
+					<div id="light-green" class="light green off" title="Green"></div>
+				</div>
+				<p id="status-text" class="status-text red">—</p>
+				<p id="time-remaining" class="time-remaining"></p>
+				<p id="coords" class="small"></p>
+			</div>
+			<div id="error" class="message error" style="display: none"></div>
+		</div>
 
-  <script>
-    (function () {
-      try {
-        localStorage.removeItem('lane_status_fp');
-        for (var i = localStorage.length - 1; i >= 0; i--) {
-          var k = localStorage.key(i);
-          if (k && k.indexOf('lane_status_seq_lock') === 0) localStorage.removeItem(k);
-        }
-      } catch (e) {}
+		<script>
+			(function () {
+				try {
+					localStorage.removeItem("lane_status_fp");
+					for (var i = localStorage.length - 1; i >= 0; i--) {
+						var k = localStorage.key(i);
+						if (k && k.indexOf("lane_status_seq_lock") === 0) localStorage.removeItem(k);
+					}
+				} catch (e) {}
 
-      const waitingEl = document.getElementById('waiting');
-      const laneUiEl = document.getElementById('lane-ui');
-      const errorEl = document.getElementById('error');
-      const seqLabelEl = document.getElementById('seq-label');
-      const seqPhaseDotEl = document.getElementById('seq-phase-dot');
-      const lightRed = document.getElementById('light-red');
-      const lightYellow = document.getElementById('light-yellow');
-      const lightGreen = document.getElementById('light-green');
-      const statusTextEl = document.getElementById('status-text');
-      const timeRemainingEl = document.getElementById('time-remaining');
-      const coordsEl = document.getElementById('coords');
+				const waitingEl = document.getElementById("waiting");
+				const laneUiEl = document.getElementById("lane-ui");
+				const errorEl = document.getElementById("error");
+				const seqLabelEl = document.getElementById("seq-label");
+				const seqPhaseDotEl = document.getElementById("seq-phase-dot");
+				const lightRed = document.getElementById("light-red");
+				const lightYellow = document.getElementById("light-yellow");
+				const lightGreen = document.getElementById("light-green");
+				const statusTextEl = document.getElementById("status-text");
+				const timeRemainingEl = document.getElementById("time-remaining");
+				const coordsEl = document.getElementById("coords");
 
-      let geofences = [];
-      let pollTimer = null;
-      let currentSeq = null;
-      let lastState = null;
+				let geofences = [];
+				let pollTimer = null;
+				let currentSeq = null;
+				let lastState = null;
 
-      function formatSeqTitle(seqKey, name) {
-        if (name) return name;
-        if (seqKey === 'seq1') return 'Sequence 1';
-        if (seqKey === 'seq2') return 'Sequence 2';
-        if (seqKey === 'seq3') return 'Sequence 3';
-        return seqKey || '—';
-      }
+				function formatSeqTitle(seqKey, name) {
+					if (name) return name;
+					if (seqKey === "seq1") return "Sequence 1";
+					if (seqKey === "seq2") return "Sequence 2";
+					if (seqKey === "seq3") return "Sequence 3";
+					return seqKey || "—";
+				}
 
-      function pointInPolygon(lat, lon, polygon) {
-        if (!polygon || polygon.length < 3) return false;
-        const x = lon, y = lat;
-        let inside = false;
-        const n = polygon.length;
-        for (let i = 0, j = n - 1; i < n; j = i++) {
-          const xi = polygon[i][1], yi = polygon[i][0];
-          const xj = polygon[j][1], yj = polygon[j][0];
-          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
-        }
-        return inside;
-      }
+				function pointInPolygon(lat, lon, polygon) {
+					if (!polygon || polygon.length < 3) return false;
+					const x = lon,
+						y = lat;
+					let inside = false;
+					const n = polygon.length;
+					for (let i = 0, j = n - 1; i < n; j = i++) {
+						const xi = polygon[i][1],
+							yi = polygon[i][0];
+						const xj = polygon[j][1],
+							yj = polygon[j][0];
+						if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+					}
+					return inside;
+				}
 
-      function findGeofence(lat, lon) {
-        for (const g of geofences) {
-          if (g.polygon && pointInPolygon(lat, lon, g.polygon)) return g;
-        }
-        return null;
-      }
+				function findGeofence(lat, lon) {
+					for (const g of geofences) {
+						if (g.polygon && pointInPolygon(lat, lon, g.polygon)) return g;
+					}
+					return null;
+				}
 
-      function getPhaseDotColor(state, seqKey) {
-        if (!state || typeof state !== 'object' || !seqKey) return 'off';
-        if (state.standby_mode) return 'off';
-        const active = state.current_phase === seqKey;
-        if (!active) return 'off';
-        const sub = (state.phase_sub_state || '').toLowerCase();
-        if (sub === 'green') return 'green';
-        if (sub === 'yellow') return 'yellow';
-        if (sub === 'red') return 'red';
-        const phases = state.phases || {};
-        const phase = phases[seqKey];
-        const lampsArr = state.lamps || [];
-        const lamps = {};
-        lampsArr.forEach(function (l) { lamps[l.id] = l; });
-        if (phase) {
-          const greenKeys = phase.green_keys || [];
-          const yellowKeys = phase.yellow_keys || [];
-          const redKeys = phase.red_keys || [];
-          if (greenKeys.some(function (id) { return lamps[id] && lamps[id].color === 'green'; })) return 'green';
-          if (yellowKeys.some(function (id) { return lamps[id] && lamps[id].color === 'yellow'; })) return 'yellow';
-          if (redKeys.some(function (id) { return lamps[id] && lamps[id].color === 'red_active'; })) return 'red';
-        }
-        return 'off';
-      }
+				function getPhaseDotColor(state, seqKey) {
+					if (!state || typeof state !== "object" || !seqKey) return "off";
+					if (state.standby_mode) return "off";
+					const active = state.current_phase === seqKey;
+					if (!active) return "off";
+					const sub = (state.phase_sub_state || "").toLowerCase();
+					if (sub === "green") return "green";
+					if (sub === "yellow") return "yellow";
+					if (sub === "red") return "red";
+					const phases = state.phases || {};
+					const phase = phases[seqKey];
+					const lampsArr = state.lamps || [];
+					const lamps = {};
+					lampsArr.forEach(function (l) {
+						lamps[l.id] = l;
+					});
+					if (phase) {
+						const greenKeys = phase.green_keys || [];
+						const yellowKeys = phase.yellow_keys || [];
+						const redKeys = phase.red_keys || [];
+						if (
+							greenKeys.some(function (id) {
+								return lamps[id] && lamps[id].color === "green";
+							})
+						)
+							return "green";
+						if (
+							yellowKeys.some(function (id) {
+								return lamps[id] && lamps[id].color === "yellow";
+							})
+						)
+							return "yellow";
+						if (
+							redKeys.some(function (id) {
+								return lamps[id] && lamps[id].color === "red_active";
+							})
+						)
+							return "red";
+					}
+					return "off";
+				}
 
-      function applySeqPhaseDot(state, seqKey) {
-        if (!seqPhaseDotEl) return;
-        const c = getPhaseDotColor(state, seqKey);
-        seqPhaseDotEl.className = 'seq-phase-dot ' + c;
-        seqPhaseDotEl.title = c === 'off' ? 'Idle / wait' : c.charAt(0).toUpperCase() + c.slice(1);
-      }
+				function applySeqPhaseDot(state, seqKey) {
+					if (!seqPhaseDotEl) return;
+					const c = getPhaseDotColor(state, seqKey);
+					seqPhaseDotEl.className = "seq-phase-dot " + c;
+					seqPhaseDotEl.title = c === "off" ? "Idle / wait" : c.charAt(0).toUpperCase() + c.slice(1);
+				}
 
-      function updateLights(state, seqKey) {
-        try {
-          if (!seqKey) {
-            lightRed.classList.remove('on'); lightRed.classList.add('off');
-            lightYellow.classList.remove('on'); lightYellow.classList.add('off');
-            lightGreen.classList.remove('on'); lightGreen.classList.add('off');
-            statusTextEl.textContent = 'Not in a monitored lane';
-            statusTextEl.className = 'status-text';
-            timeRemainingEl.textContent = 'Move into an approach zone to see your signal.';
-            return;
-          }
-          if (!state || typeof state !== 'object') state = {};
-          const isMyPhase = state.current_phase === seqKey;
-          const sub = state.phase_sub_state || null;
-          const standby = !!state.standby_mode;
+				function updateLights(state, seqKey) {
+					try {
+						if (!seqKey) {
+							lightRed.classList.remove("on");
+							lightRed.classList.add("off");
+							lightYellow.classList.remove("on");
+							lightYellow.classList.add("off");
+							lightGreen.classList.remove("on");
+							lightGreen.classList.add("off");
+							statusTextEl.textContent = "Not in a monitored lane";
+							statusTextEl.className = "status-text";
+							timeRemainingEl.textContent = "Move into an approach zone to see your signal.";
+							return;
+						}
+						if (!state || typeof state !== "object") state = {};
+						const isMyPhase = state.current_phase === seqKey;
+						const sub = state.phase_sub_state || null;
+						const standby = !!state.standby_mode;
 
-          if (standby) {
-            lightRed.classList.remove('on'); lightRed.classList.add('off');
-            lightYellow.classList.remove('on'); lightYellow.classList.add('off');
-            lightGreen.classList.remove('on'); lightGreen.classList.add('off');
-            statusTextEl.textContent = 'Lights off (standby)';
-            statusTextEl.className = 'status-text';
-            timeRemainingEl.textContent = '';
-            return;
-          }
+						if (standby) {
+							lightRed.classList.remove("on");
+							lightRed.classList.add("off");
+							lightYellow.classList.remove("on");
+							lightYellow.classList.add("off");
+							lightGreen.classList.remove("on");
+							lightGreen.classList.add("off");
+							statusTextEl.textContent = "Lights off (standby)";
+							statusTextEl.className = "status-text";
+							timeRemainingEl.textContent = "";
+							return;
+						}
 
-          if (!isMyPhase || (sub !== 'green' && sub !== 'yellow')) {
-            lightRed.classList.add('on'); lightRed.classList.remove('off');
-            lightYellow.classList.remove('on'); lightYellow.classList.add('off');
-            lightGreen.classList.remove('on'); lightGreen.classList.add('off');
-            statusTextEl.textContent = 'Red — wait';
-            statusTextEl.className = 'status-text red';
-            timeRemainingEl.textContent = 'Your lane will turn green in the next cycle.';
-            return;
-          }
+						if (!isMyPhase || (sub !== "green" && sub !== "yellow")) {
+							lightRed.classList.add("on");
+							lightRed.classList.remove("off");
+							lightYellow.classList.remove("on");
+							lightYellow.classList.add("off");
+							lightGreen.classList.remove("on");
+							lightGreen.classList.add("off");
+							statusTextEl.textContent = "Red — wait";
+							statusTextEl.className = "status-text red";
+							timeRemainingEl.textContent = "Your lane will turn green in the next cycle.";
+							return;
+						}
 
-          if (sub === 'green') {
-            lightRed.classList.remove('on'); lightRed.classList.add('off');
-            lightYellow.classList.remove('on'); lightYellow.classList.add('off');
-            lightGreen.classList.add('on'); lightGreen.classList.remove('off');
-            statusTextEl.textContent = 'Green — go';
-            statusTextEl.className = 'status-text green';
-            const total = state.assigned_green_duration > 0
-              ? state.assigned_green_duration
-              : (state.manual_green_duration != null ? state.manual_green_duration : 90);
-            const elapsed = state.green_elapsed_seconds != null && state.green_elapsed_seconds >= 0 && state.green_elapsed_seconds < 86400
-              ? state.green_elapsed_seconds
-              : Math.max(0, (state.server_time || Date.now() / 1000) - (state.phase_start_time || 0));
-            const left = Math.max(0, total - elapsed);
-            timeRemainingEl.textContent = total > 0 ? `About ${left.toFixed(0)}s green remaining` : '';
-            return;
-          }
+						if (sub === "green") {
+							lightRed.classList.remove("on");
+							lightRed.classList.add("off");
+							lightYellow.classList.remove("on");
+							lightYellow.classList.add("off");
+							lightGreen.classList.add("on");
+							lightGreen.classList.remove("off");
+							statusTextEl.textContent = "Green — go";
+							statusTextEl.className = "status-text green";
+							const total = state.assigned_green_duration > 0 ? state.assigned_green_duration : state.manual_green_duration != null ? state.manual_green_duration : 90;
+							const elapsed =
+								state.green_elapsed_seconds != null && state.green_elapsed_seconds >= 0 && state.green_elapsed_seconds < 86400
+									? state.green_elapsed_seconds
+									: Math.max(0, (state.server_time || Date.now() / 1000) - (state.phase_start_time || 0));
+							const left = Math.max(0, total - elapsed);
+							timeRemainingEl.textContent = total > 0 ? `About ${left.toFixed(0)}s green remaining` : "";
+							return;
+						}
 
-          if (sub === 'yellow') {
-            lightRed.classList.remove('on'); lightRed.classList.add('off');
-            lightYellow.classList.add('on'); lightYellow.classList.remove('off');
-            lightGreen.classList.remove('on'); lightGreen.classList.add('off');
-            statusTextEl.textContent = 'Yellow — clear the intersection';
-            statusTextEl.className = 'status-text yellow';
-            const total = state.yellow_duration || 3;
-            const elapsed = state.yellow_elapsed_seconds != null && state.yellow_elapsed_seconds >= 0 && state.yellow_elapsed_seconds < 86400
-              ? state.yellow_elapsed_seconds
-              : Math.max(0, (state.server_time || Date.now() / 1000) - (state.yellow_start_time || 0));
-            const left = Math.max(0, total - elapsed);
-            timeRemainingEl.textContent = `About ${left.toFixed(0)}s yellow remaining`;
-            return;
-          }
-        } finally {
-          applySeqPhaseDot(state, seqKey);
-        }
-      }
+						if (sub === "yellow") {
+							lightRed.classList.remove("on");
+							lightRed.classList.add("off");
+							lightYellow.classList.add("on");
+							lightYellow.classList.remove("off");
+							lightGreen.classList.remove("on");
+							lightGreen.classList.add("off");
+							statusTextEl.textContent = "Yellow — clear the intersection";
+							statusTextEl.className = "status-text yellow";
+							const total = state.yellow_duration || 3;
+							const elapsed =
+								state.yellow_elapsed_seconds != null && state.yellow_elapsed_seconds >= 0 && state.yellow_elapsed_seconds < 86400
+									? state.yellow_elapsed_seconds
+									: Math.max(0, (state.server_time || Date.now() / 1000) - (state.yellow_start_time || 0));
+							const left = Math.max(0, total - elapsed);
+							timeRemainingEl.textContent = `About ${left.toFixed(0)}s yellow remaining`;
+							return;
+						}
+					} finally {
+						applySeqPhaseDot(state, seqKey);
+					}
+				}
 
-      function stopPolling() {
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
-      }
+				function stopPolling() {
+					if (pollTimer) {
+						clearInterval(pollTimer);
+						pollTimer = null;
+					}
+				}
 
-      function startPolling() {
-        stopPolling();
-        pollTimer = setInterval(function () {
-          fetch('/api/state')
-            .then(function (r) { return r.json(); })
-            .then(function (state) {
-              if (state.error) return;
-              lastState = state;
-              updateLights(state, currentSeq ? currentSeq.sequence : null);
-            })
-            .catch(function () {});
-        }, 1000);
-      }
+				function startPolling() {
+					stopPolling();
+					pollTimer = setInterval(function () {
+						fetch("/api/state")
+							.then(function (r) {
+								return r.json();
+							})
+							.then(function (state) {
+								if (state.error) return;
+								lastState = state;
+								updateLights(state, currentSeq ? currentSeq.sequence : null);
+							})
+							.catch(function () {});
+					}, 1000);
+				}
 
-      /** Single GPS fix on load: pick sequence from geofences, then only /api/state polling updates lights. */
-      function applySingleFix(lat, lon) {
-        coordsEl.textContent = 'Lat ' + Number(lat).toFixed(5) + ', Lon ' + Number(lon).toFixed(5);
-        errorEl.style.display = 'none';
-        waitingEl.style.display = 'none';
-        laneUiEl.style.display = 'block';
+				/** Single GPS fix on load: pick sequence from geofences, then only /api/state polling updates lights. */
+				function applySingleFix(lat, lon) {
+					coordsEl.textContent = "Lat " + Number(lat).toFixed(5) + ", Lon " + Number(lon).toFixed(5);
+					errorEl.style.display = "none";
+					waitingEl.style.display = "none";
+					laneUiEl.style.display = "block";
 
-        const lane = findGeofence(lat, lon);
-        if (!lane || !lane.sequence) {
-          currentSeq = null;
-          seqLabelEl.textContent = 'Not in a monitored lane';
-          updateLights(lastState || {}, null);
-          stopPolling();
-          return;
-        }
+					const lane = findGeofence(lat, lon);
+					if (!lane || !lane.sequence) {
+						currentSeq = null;
+						seqLabelEl.textContent = "Not in a monitored lane";
+						updateLights(lastState || {}, null);
+						stopPolling();
+						return;
+					}
 
-        currentSeq = { sequence: lane.sequence, name: lane.name };
-        seqLabelEl.textContent = formatSeqTitle(lane.sequence, lane.name);
-        startPolling();
-        fetch('/api/state')
-          .then(function (r) { return r.json(); })
-          .then(function (state) {
-            if (state.error) return;
-            lastState = state;
-            updateLights(state, lane.sequence);
-          })
-          .catch(function () {
-            updateLights({ current_phase: null, phase_sub_state: null, standby_mode: false }, lane.sequence);
-          });
-      }
+					currentSeq = { sequence: lane.sequence, name: lane.name };
+					seqLabelEl.textContent = formatSeqTitle(lane.sequence, lane.name);
+					startPolling();
+					fetch("/api/state")
+						.then(function (r) {
+							return r.json();
+						})
+						.then(function (state) {
+							if (state.error) return;
+							lastState = state;
+							updateLights(state, lane.sequence);
+						})
+						.catch(function () {
+							updateLights({ current_phase: null, phase_sub_state: null, standby_mode: false }, lane.sequence);
+						});
+				}
 
-      function onGeoError(err) {
-        waitingEl.style.display = 'none';
-        errorEl.style.display = 'block';
-        errorEl.textContent = 'Location needed: ' + (err && err.message ? err.message : 'allow access when prompted, or enable GPS.');
-      }
+				function onGeoError(err) {
+					waitingEl.style.display = "none";
+					errorEl.style.display = "block";
+					errorEl.textContent = "Location needed: " + (err && err.message ? err.message : "allow access when prompted, or enable GPS.");
+				}
 
-      fetch('/api/geofences')
-        .then(function (r) {
-          if (!r.ok) throw new Error('Could not load lane map');
-          return r.json();
-        })
-        .then(function (data) {
-          geofences = data.geofences || [];
-          if (!navigator.geolocation) {
-            waitingEl.style.display = 'none';
-            errorEl.style.display = 'block';
-            errorEl.textContent = 'This browser does not support GPS.';
-            return;
-          }
-          waitingEl.textContent = 'Getting your location once… If the browser asks, allow access.';
-          navigator.geolocation.getCurrentPosition(
-            function (pos) {
-              applySingleFix(pos.coords.latitude, pos.coords.longitude);
-            },
-            onGeoError,
-            { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-          );
-        })
-        .catch(function (e) {
-          waitingEl.style.display = 'none';
-          errorEl.style.display = 'block';
-          errorEl.textContent = e.message || 'Failed to load.';
-        });
+				fetch("/api/geofences")
+					.then(function (r) {
+						if (!r.ok) throw new Error("Could not load lane map");
+						return r.json();
+					})
+					.then(function (data) {
+						geofences = data.geofences || [];
+						if (!navigator.geolocation) {
+							waitingEl.style.display = "none";
+							errorEl.style.display = "block";
+							errorEl.textContent = "This browser does not support GPS.";
+							return;
+						}
+						waitingEl.textContent = "Getting your location once… If the browser asks, allow access.";
+						navigator.geolocation.getCurrentPosition(
+							function (pos) {
+								applySingleFix(pos.coords.latitude, pos.coords.longitude);
+							},
+							onGeoError,
+							{ enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
+						);
+					})
+					.catch(function (e) {
+						waitingEl.style.display = "none";
+						errorEl.style.display = "block";
+						errorEl.textContent = e.message || "Failed to load.";
+					});
 
-      window.addEventListener('beforeunload', function () {
-        stopPolling();
-      });
-    })();
-  </script>
-</body>
+				window.addEventListener("beforeunload", function () {
+					stopPolling();
+				});
+			})();
+		</script>
+	</body>
 </html>

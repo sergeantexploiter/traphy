@@ -144,11 +144,12 @@ current_phase = None       # Phase key currently running (seq1/seq2/seq3) or Non
 last_served = {k: 0.0 for k in PHASES}  # Last time each phase was served (for fair round-robin).
 last_relay_state = {}      # server -> set of relay IDs we consider ON (for dashboard only — not used for dedup).
 idle_all_off_sent = False  # True after we have sent all-off while idle (avoid repeated sends).
-control_mode = "auto"      # "auto" or "manual"; when manual, only trigger_phase() runs phases.
+control_mode = "manual"    # "auto" or "manual"; default manual — only trigger_phase()/emergency runs phases.
 manual_phase_request = None  # When manual: phase_key to run next (seq1/seq2/seq3), or None.
 cancel_phase_request = False  # When True, run_phase aborts and applies all-red (dashboard "Cancel" button).
 pending_sleep_standby = False  # When True, enter standby (all relays off) once idle (dashboard "Sleep" button).
 wake_standby_request = False  # When True, exit standby and resume normal relay control (dashboard "Wake").
+pending_auto_revert = False  # When True, an emergency forced auto→manual; restore "auto" after the phase ends.
 _control_lock = threading.Lock()
 _manual_wake_event = threading.Event()   # Set by trigger_phase() so idle manual loop wakes quickly.
 _standby_wake_event = threading.Event()   # Set by MQTT on_message when data changes; standby loop wakes.
@@ -592,9 +593,14 @@ client.reconnect_delay_set(min_delay=1, max_delay=30)  # exponential backoff up 
 client.connect(config.MQTT_BROKER, config.MQTT_PORT, 60)
 client.loop_start()
 
-# Startup: set all units to red (one batch per server), then enter main loop.
-logger.info("Starting → set all units to red")
-set_all_units_to_red()
+# Startup: all lights OFF by default. Boot into standby so the intersection stays dark
+# until a phase is triggered (manual/emergency), traffic is detected, or the operator
+# wakes it. Default control mode is manual.
+logger.info("Starting → all lights off (boot standby)")
+force_all_relays_off()
+standby_mode = True
+with _data_lock:
+    standby_data_snapshot = {k: data[k].get("value", 0) for k in data}
 time.sleep(0.5)  # Brief settle before main loop
 
 logger.info("Coordinator running – FCFS + density tie-breaker (pedestrian independent)")
@@ -604,12 +610,14 @@ logger.info("Coordinator running – FCFS + density tie-breaker (pedestrian inde
 # -----------------------------------------------------------------------------
 
 def set_control_mode(mode):
-    """Set control mode to 'auto' or 'manual'. When manual, coordinator does not auto-select phases."""
-    global control_mode
+    """Set control mode to 'auto' or 'manual'. When manual, coordinator does not auto-select phases.
+    An explicit operator mode change cancels any pending emergency auto-revert."""
+    global control_mode, pending_auto_revert
     if mode not in ("auto", "manual"):
         return
     with _control_lock:
         control_mode = mode
+        pending_auto_revert = False
     logger.info(">>> Control mode set → %s <<<", mode)
 
 
@@ -627,6 +635,32 @@ def trigger_phase(phase_key):
         manual_phase_request = phase_key
     _manual_wake_event.set()
     logger.info(">>> Manual phase trigger accepted → %s <<<", phase_key)
+
+
+def trigger_emergency_phase(phase_key, source="emergency"):
+    """Emergency priority trigger from the mobile app (via dashboard /api/emergency).
+
+    The dashboard resolves the caller's GPS to a lane (sequence) and calls this with
+    that sequence. Emergencies must always be served, so we force manual control (if
+    not already) and queue the phase. `source` is the button text, e.g. 'Police' or
+    'Ambulance', and is logged for the audit trail.
+    """
+    global manual_phase_request, control_mode, last_activity_time, pending_auto_revert
+    if phase_key not in PHASES:
+        logger.warning("trigger_emergency_phase: unknown phase key '%s'", phase_key)
+        return
+    last_activity_time = time.time()
+    with _control_lock:
+        if control_mode == "auto":
+            # Came in while auto-controlling: serve the emergency in manual, then revert
+            # to auto after the phase so normal operation is not interrupted.
+            control_mode = "manual"
+            pending_auto_revert = True
+            logger.info(">>> EMERGENCY (%s): auto → manual (will revert to auto after the phase) <<<", source)
+        manual_phase_request = phase_key
+    _manual_wake_event.set()
+    _standby_wake_event.set()  # wake from standby / idle wait so the phase starts immediately
+    logger.info(">>> EMERGENCY trigger accepted → %s (source=%s) <<<", phase_key, source)
 
 
 def cancel_phase():
@@ -731,6 +765,7 @@ try:
             "port": _dashboard_port,
             "set_mode_fn": set_control_mode,
             "trigger_phase_fn": trigger_phase,
+            "emergency_phase_fn": trigger_emergency_phase,
             "cancel_phase_fn": cancel_phase,
             "sleep_standby_fn": request_sleep_standby,
             "wake_standby_fn": request_wake_standby,
@@ -840,6 +875,13 @@ while not _shutdown:
             current_phase = requested
             run_phase(requested)
             idle_all_off_sent = False
+            # Emergency auto-revert: if an emergency forced auto → manual, return to auto
+            # once the emergency phase is done and no further phase is queued.
+            with _control_lock:
+                if pending_auto_revert and manual_phase_request is None:
+                    control_mode = "auto"
+                    pending_auto_revert = False
+                    logger.info(">>> Emergency complete → control mode restored to auto <<<")
         elif mode == "auto":
             next_phase = select_next_phase()
             if next_phase and next_phase != current_phase:

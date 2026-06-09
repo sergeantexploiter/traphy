@@ -42,6 +42,17 @@ def _point_in_polygon(lat: float, lon: float, polygon: list) -> bool:
         j = i
     return inside
 
+
+def _resolve_lane(lat: float, lon: float) -> Optional[dict]:
+    """Resolve which lane (sequence) contains the GPS point from config.LANE_GEOFENCES.
+    Polygon order matches /api/geofences (A → B → D → C → A). Returns {sequence, name} or None."""
+    for g in getattr(config, "LANE_GEOFENCES", []):
+        if "A" in g and "B" in g and "C" in g and "D" in g:
+            polygon = [g["A"], g["B"], g["D"], g["C"]]
+            if _point_in_polygon(lat, lon, polygon):
+                return {"sequence": g.get("sequence"), "name": g.get("name", "")}
+    return None
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 # -----------------------------------------------------------------------------
@@ -255,6 +266,7 @@ class DashboardServer:
         cache_ttl: float = 1.0,
         set_mode_fn=None,
         trigger_phase_fn=None,
+        emergency_phase_fn=None,
         cancel_phase_fn=None,
         sleep_standby_fn=None,
         wake_standby_fn=None,
@@ -265,6 +277,7 @@ class DashboardServer:
         self._state_cache      = {"response": None, "ts": 0.0}
         self._set_mode_fn      = set_mode_fn
         self._trigger_phase_fn = trigger_phase_fn
+        self._emergency_phase_fn = emergency_phase_fn
         self._cancel_phase_fn  = cancel_phase_fn
         self._sleep_standby_fn = sleep_standby_fn
         self._wake_standby_fn  = wake_standby_fn
@@ -275,6 +288,7 @@ class DashboardServer:
         app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
         app.secret_key = getattr(config, "TRAFFICATOR_SECRET_KEY", "change-me")
         app.add_url_rule("/",                       "index",           self._index)
+        app.add_url_rule("/lane-status",            "lane_status",     self._lane_status)
         app.add_url_rule("/trafficator",            "trafficator",     self._trafficator)
         app.add_url_rule("/trafficator/login",      "trafficator_login", self._trafficator_login, methods=["GET", "POST"])
         app.add_url_rule("/api/state",              "api_state",      self._api_state,   methods=["GET"])
@@ -283,6 +297,7 @@ class DashboardServer:
         app.add_url_rule("/api/config",             "api_config",     self._api_config)
         app.add_url_rule("/api/mode",               "api_mode",        self._api_mode,    methods=["POST"])
         app.add_url_rule("/api/trigger_phase",      "api_trigger_phase", self._api_trigger_phase, methods=["POST"])
+        app.add_url_rule("/api/emergency",          "api_emergency",     self._api_emergency,     methods=["POST"])
         app.add_url_rule("/api/cancel_phase",       "api_cancel_phase",  self._api_cancel_phase,  methods=["POST"])
         app.add_url_rule("/api/sleep_standby",      "api_sleep_standby", self._api_sleep_standby, methods=["POST"])
         app.add_url_rule("/api/wake_standby",       "api_wake_standby",  self._api_wake_standby,  methods=["POST"])
@@ -304,7 +319,11 @@ class DashboardServer:
     # ── Routes ───────────────────────────────────────────────────────────────
 
     def _index(self):
-        """Default root: lane-status app."""
+        """Default root: operator dashboard (redirects through /trafficator auth)."""
+        return redirect(url_for("trafficator"))
+
+    def _lane_status(self):
+        """Public driver-facing lane-status app (GPS → which lane → live signal)."""
         return send_from_directory(STATIC_DIR, "lane-status.html")
 
     def _trafficator(self):
@@ -507,6 +526,49 @@ class DashboardServer:
             logger.exception("Trigger phase error: %s", e)
             return jsonify({"error": str(e)}), 500
 
+    def _api_emergency(self):
+        """POST { lat, lon, source }: resolve the caller's lane from GPS and trigger that
+        sequence as a priority. `source` is the mobile button text ('Police' / 'Ambulance').
+
+        Mirrors the lane-status flow: the phone sends its GPS fix and the button it
+        pressed; the server computes the lane from config geofences and triggers it.
+        """
+        if not self._emergency_phase_fn:
+            return jsonify({"error": "emergency trigger not available"}), 501
+        try:
+            data = request.get_json(force=True, silent=True) or {}
+            try:
+                lat = float(data.get("lat"))
+                lon = float(data.get("lon"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "lat and lon required as numbers"}), 400
+
+            source = (data.get("source") or "").strip()
+            if not source:
+                return jsonify({"error": "source required (e.g. Police or Ambulance)"}), 400
+            if len(source) > 64:
+                return jsonify({"error": "source max 64 chars"}), 400
+
+            lane = _resolve_lane(lat, lon)
+            if not lane or not lane.get("sequence"):
+                return jsonify({"error": "not_in_lane", "message": "You're not in a monitored lane."}), 404
+
+            self._emergency_phase_fn(lane["sequence"], source)
+            self._state_cache = {"response": None, "ts": 0.0}
+            logger.info(
+                "Emergency: %s → %s (%s) at %.6f,%.6f",
+                source, lane["sequence"], lane.get("name", ""), lat, lon,
+            )
+            return jsonify({
+                "ok": True,
+                "sequence": lane["sequence"],
+                "name": lane.get("name", ""),
+                "source": source,
+            }), 200
+        except Exception as e:
+            logger.exception("Emergency trigger error: %s", e)
+            return jsonify({"error": str(e)}), 500
+
     def _api_cancel_phase(self):
         """POST: cancel current phase and go to all-red (trigger all red)."""
         if not self._cancel_phase_fn:
@@ -617,6 +679,7 @@ def run_dashboard(
     port: int = 5001,
     set_mode_fn=None,
     trigger_phase_fn=None,
+    emergency_phase_fn=None,
     cancel_phase_fn=None,
     sleep_standby_fn=None,
     wake_standby_fn=None,
@@ -628,6 +691,7 @@ def run_dashboard(
         get_state_fn,
         set_mode_fn=set_mode_fn,
         trigger_phase_fn=trigger_phase_fn,
+        emergency_phase_fn=emergency_phase_fn,
         cancel_phase_fn=cancel_phase_fn,
         sleep_standby_fn=sleep_standby_fn,
         wake_standby_fn=wake_standby_fn,
