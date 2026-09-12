@@ -1,8 +1,14 @@
 # Smart Traffic Light: vehicle detection, tracking, counting, speed, violations
 # Python 3.8+
 
-# YOLOv8
+# YOLOv8 (CPU/GPU .pt/.onnx). Not required on the Orange Pi if you only load .rknn.
 ultralytics>=8.0.0
+
+# Orange Pi RK3588 NPU (6 TOPS) — install these ON THE BOARD, not on macOS:
+#   pip3 install rknn-toolkit-lite2          # inference (.rknn / .rnn)
+#   pip3 install rknn-toolkit2               # conversion (or the official wheel
+#                                            # from https://github.com/airockchip/rknn-toolkit2)
+# Convert:  python3 src/rknn_export.py --model yolov8n.pt --target rk3588 --dtype fp
 
 # Video & image
 opencv-python>=4.8.0

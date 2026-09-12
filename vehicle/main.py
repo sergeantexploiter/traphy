@@ -6,6 +6,7 @@ Configure all behavior in config.py.
 Run from project root: python vehicle/main.py
 """
 
+import sys
 from pathlib import Path
 
 import cv2
@@ -14,11 +15,10 @@ import numpy as np
 import config as cfg
 from sort_tracker import Sort, iou_batch
 
-# Optional: YOLOv8
-try:
-    from ultralytics import YOLO
-except ImportError:
-    YOLO = None
+_SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+from rknn_detector import load_detector  # noqa: E402
 
 # Optional: EasyOCR (only when license plate recognition is enabled)
 EasyOCR = None
@@ -145,11 +145,12 @@ def run_ocr_on_crop(frame: np.ndarray, bbox_xyxy: np.ndarray, reader) -> str:
 
 
 def main():
-    if YOLO is None:
-        print("Install ultralytics: pip install ultralytics")
-        return
-
-    model = YOLO(cfg.YOLO_MODEL)
+    model = load_detector(
+        cfg.YOLO_MODEL,
+        imgsz=getattr(cfg, "RKNN_IMGSZ", 640),
+        conf=cfg.CONFIDENCE_THRESHOLD,
+        npu_cores=getattr(cfg, "RKNN_NPU_CORES", "0_1_2"),
+    )
     tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.3) if cfg.ENABLE_SORT_TRACKING else None
 
     ocr_reader = None

@@ -4,6 +4,7 @@
 # Run via DashboardServer in a daemon thread from coordinator.py.
 
 import logging
+import math
 import time
 import threading
 import sys
@@ -43,13 +44,35 @@ def _point_in_polygon(lat: float, lon: float, polygon: list) -> bool:
     return inside
 
 
+def _order_polygon(points: list) -> list:
+    """Order corner points [lat, lon] into a simple (non-self-intersecting) polygon.
+
+    Corners are sorted counter-clockwise by angle around their centroid. For a
+    convex shape like a surveyed square this always yields a valid boundary,
+    regardless of the order the corners (A, B, C, D) were entered — so walking
+    the corners in any order still produces a correct geofence. This avoids the
+    self-intersecting "bow-tie" you get from a fixed A → B → D → C order when the
+    corners were captured in perimeter order.
+    """
+    pts = [p for p in points if p and len(p) >= 2]
+    if len(pts) < 3:
+        return pts
+    cy = sum(p[0] for p in pts) / len(pts)
+    cx = sum(p[1] for p in pts) / len(pts)
+    return sorted(pts, key=lambda p: math.atan2(p[0] - cy, p[1] - cx))
+
+
+def _geofence_polygon(g: dict) -> list:
+    """Build an ordered [lat, lon] polygon from a geofence's A/B/C/D corners."""
+    return _order_polygon([g["A"], g["B"], g["C"], g["D"]])
+
+
 def _resolve_lane(lat: float, lon: float) -> Optional[dict]:
     """Resolve which lane (sequence) contains the GPS point from config.LANE_GEOFENCES.
-    Polygon order matches /api/geofences (A → B → D → C → A). Returns {sequence, name} or None."""
+    Returns {sequence, name} or None."""
     for g in getattr(config, "LANE_GEOFENCES", []):
         if "A" in g and "B" in g and "C" in g and "D" in g:
-            polygon = [g["A"], g["B"], g["D"], g["C"]]
-            if _point_in_polygon(lat, lon, polygon):
+            if _point_in_polygon(lat, lon, _geofence_polygon(g)):
                 return {"sequence": g.get("sequence"), "name": g.get("name", "")}
     return None
 
@@ -377,16 +400,15 @@ class DashboardServer:
 
     def _api_geofences(self):
         """Return lane geofences for the lane-status app. Each has sequence, name, and polygon.
-        Polygon is 4 points [lat, lon] in order A → B → D → C → A (square)."""
+        Polygon is 4 corner points [lat, lon] ordered into a simple (non-crossing) square."""
         raw = getattr(config, "LANE_GEOFENCES", [])
         geofences = []
         for g in raw:
             if "A" in g and "B" in g and "C" in g and "D" in g:
-                polygon = [g["A"], g["B"], g["D"], g["C"]]  # A → B → D → C → A
                 geofences.append({
                     "sequence": g.get("sequence"),
                     "name": g.get("name", ""),
-                    "polygon": polygon,
+                    "polygon": _geofence_polygon(g),
                 })
             else:
                 geofences.append(g)
@@ -411,8 +433,7 @@ class DashboardServer:
             geofences = []
             for g in raw:
                 if "A" in g and "B" in g and "C" in g and "D" in g:
-                    polygon = [g["A"], g["B"], g["D"], g["C"]]
-                    geofences.append({"sequence": g.get("sequence"), "name": g.get("name", ""), "polygon": polygon})
+                    geofences.append({"sequence": g.get("sequence"), "name": g.get("name", ""), "polygon": _geofence_polygon(g)})
             now = time.time()
             lane = None
             for g in geofences:

@@ -22,9 +22,12 @@ ENABLE_RED_LIGHT_VIOLATION = True    # Flag vehicle if it crosses stop line (vio
 # Video source: path to file, or 0 for webcam, or RTSP URL (relative to project root if needed)
 VIDEO_SOURCE = "videos/video-3.mp4"
 
-# YOLOv8 model: "yolov8n.pt" (nano), "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"
+# YOLOv8 model: "yolov8n.pt" (nano), "yolov8s.pt", … or a converted "models/yolov8n.rknn"
+# for the Orange Pi RK3588 6 TOPS NPU. .rnn is accepted as an alias for .rknn.
 # Nano is fastest; larger models are slower but more accurate.
 YOLO_MODEL = "yolov8n.pt"
+RKNN_IMGSZ = 640
+RKNN_NPU_CORES = "0_1_2"
 
 # Run detection every N frames (1 = every frame; 2 or 3 = much faster, SORT fills gaps)
 # Main speed knob: higher = faster, slightly less precise on fast-moving vehicles.

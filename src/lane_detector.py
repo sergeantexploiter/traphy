@@ -27,6 +27,10 @@ Examples (run from src/ or the repo root):
   python3 src/lane_detector.py --lane narrow_centre \
       --source videos/real_footage/pole_1_right.mp4 --dry-run --show
 
+  # Orange Pi NPU: convert first (src/rknn_export.py), then load the .rknn file
+  python3 src/lane_detector.py --lane south_right --rtsp "rtsp://..." \
+      --model models/yolov8n.rknn
+
 Points files are JSON, e.g.:
   { "LANE_ROI_POINTS": [[9,476],[1386,216],[1689,326]],
     "LANE_COUNT_LINE": [[1298,235],[1679,364]],
@@ -61,11 +65,7 @@ import config  # noqa: E402  (after sys.path setup)
 
 logger = logging.getLogger("lane_detector")
 
-# YOLOv8 (required for detection)
-try:
-    from ultralytics import YOLO
-except ImportError:
-    YOLO = None
+from rknn_detector import load_detector  # noqa: E402  (.pt/.onnx or .rknn/.rnn on the NPU)
 
 # SORT tracker lives in the sibling vehicle/ package; import without shadowing src/config.py.
 Sort = None
@@ -358,7 +358,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--password", default=getattr(config, "MQTT_PASSWORD", None))
 
     # Detection / model
-    p.add_argument("--model", default=getattr(config, "YOLO_MODEL", "yolov8n.pt"), help="YOLOv8 weights.")
+    p.add_argument("--model", default=getattr(config, "YOLO_MODEL", "yolov8n.pt"),
+                   help="YOLOv8 weights (.pt/.onnx) or RKNN (.rknn/.rnn) for the Orange Pi NPU.")
+    p.add_argument("--npu-cores", default=getattr(config, "RKNN_NPU_CORES", "0_1_2"),
+                   help="RK3588 NPU cores: 0, 1, 2, 0_1, 0_1_2 (all 3, default), auto.")
     p.add_argument("--conf", type=float, default=0.5, help="Confidence threshold.")
     p.add_argument("--classes", default=",".join(map(str, DEFAULT_VEHICLE_CLASS_IDS)),
                    help="Comma-separated COCO class ids (default vehicles).")
@@ -400,9 +403,6 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    if YOLO is None:
-        raise SystemExit("ultralytics not installed. Run: pip install ultralytics")
-
     # ROI / lines: points file first, CLI overrides individual lists.
     roi_points: list = []
     count_line: list = []
@@ -435,7 +435,12 @@ def main() -> None:
     cv_src, label, kind = resolve_source(args.source or args.source_opt, args.webcam, args.rtsp)
     logger.info("Source: %s (%s) | lane=%s key=%s topic=%s", label, kind, args.lane, count_key, args.topic)
 
-    model = YOLO(args.model)
+    model = load_detector(
+        args.model,
+        imgsz=getattr(config, "RKNN_IMGSZ", 640),
+        conf=args.conf,
+        npu_cores=args.npu_cores,
+    )
     use_track = (not args.no_track) and (Sort is not None)
     tracker = Sort(max_age=8, min_hits=2, iou_threshold=0.3) if use_track else None
     if not use_track:

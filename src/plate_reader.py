@@ -21,6 +21,10 @@ Examples (run from the repo root):
   python3 src/plate_reader.py videos/real_footage/video-1.mp4 \
       --plate-model models/license_plate_detector.pt --show
 
+  # Same pipeline on the Orange Pi NPU (after src/rknn_export.py)
+  python3 src/plate_reader.py --rtsp "rtsp://..." \
+      --model models/yolov8n.rknn --plate-model models/license_plate_detector.rknn --show
+
   # RTSP camera, log every read to CSV and save plate crops
   python3 src/plate_reader.py --rtsp "rtsp://admin:pass@192.168.0.5:554/Streaming/Channels/101" \
       --plate-model models/license_plate_detector.pt --csv plates.csv --save-crops plate_crops
@@ -75,10 +79,7 @@ from lane_detector import (  # noqa: E402
     resolve_source,
 )
 
-try:
-    from ultralytics import YOLO
-except ImportError:
-    YOLO = None
+from rknn_detector import load_detector  # noqa: E402
 
 logger = logging.getLogger("plate_reader")
 
@@ -128,7 +129,12 @@ def resolve_plate_model_default(explicit: str | None) -> str | None:
     cfg_model = getattr(config, "PLATE_MODEL", None)
     if cfg_model:
         return cfg_model
-    for cand in ("models/license_plate_detector.pt", "license_plate_detector.pt"):
+    for cand in (
+        "models/license_plate_detector.rknn",
+        "models/license_plate_detector.rnn",
+        "models/license_plate_detector.pt",
+        "license_plate_detector.pt",
+    ):
         p = _PROJECT_ROOT / cand
         if p.exists():
             return str(p.resolve())
@@ -356,7 +362,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--points-file", help="JSON with LANE_ROI_POINTS (reuses lane_points/*.json).")
 
     # Vehicle detector
-    p.add_argument("--model", default=getattr(config, "YOLO_MODEL", "yolov8n.pt"), help="Vehicle YOLOv8 weights.")
+    p.add_argument("--model", default=getattr(config, "YOLO_MODEL", "yolov8n.pt"),
+                   help="Vehicle YOLOv8 weights (.pt/.onnx) or RKNN (.rknn/.rnn) for the Orange Pi NPU.")
+    p.add_argument("--npu-cores", default=getattr(config, "RKNN_NPU_CORES", "0_1_2"),
+                   help="RK3588 NPU cores: 0, 1, 2, 0_1, 0_1_2 (all 3, default), auto.")
     p.add_argument("--conf", type=float, default=0.4, help="Vehicle confidence threshold.")
     p.add_argument("--classes", default=",".join(map(str, DEFAULT_VEHICLE_CLASS_IDS)),
                    help="Comma-separated COCO class ids (default vehicles).")
@@ -364,8 +373,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-track", action="store_true", help="Disable SORT; use raw per-frame detections.")
 
     # Plate detector
-    p.add_argument("--plate-model", help="YOLOv8 license-plate weights. Default: config.PLATE_MODEL or "
-                                         "models/license_plate_detector.pt if present, else classic fallback.")
+    p.add_argument("--plate-model", help="YOLOv8 license-plate weights (.pt or .rknn/.rnn). Default: "
+                                         "config.PLATE_MODEL or models/license_plate_detector.rknn/.pt.")
     p.add_argument("--plate-conf", type=float, default=getattr(config, "PLATE_DETECT_CONF", 0.25),
                    help="Plate detection confidence threshold (model only).")
 
@@ -435,9 +444,6 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    if YOLO is None:
-        raise SystemExit("ultralytics not installed. Run: pip install ultralytics")
-
     # Optional ROI to restrict where we look for vehicles.
     roi_points: list = []
     if args.points_file:
@@ -451,8 +457,13 @@ def main() -> None:
     cv_src, label, kind = resolve_source(args.source or args.source_opt, args.webcam, args.rtsp)
     logger.info("Source: %s (%s)", label, kind)
 
-    # Stage 1: vehicle model.
-    model = YOLO(args.model)
+    # Stage 1: vehicle model (.pt / .onnx on CPU/GPU, .rknn/.rnn on the NPU).
+    model = load_detector(
+        args.model,
+        imgsz=getattr(config, "RKNN_IMGSZ", 640),
+        conf=args.conf,
+        npu_cores=args.npu_cores,
+    )
     use_track = (not args.no_track) and (Sort is not None)
     tracker = Sort(max_age=10, min_hits=2, iou_threshold=0.3) if use_track else None
     if not use_track:
@@ -463,7 +474,13 @@ def main() -> None:
     plate_model = None
     if plate_model_path:
         logger.info("Plate detector: %s", plate_model_path)
-        plate_model = YOLO(plate_model_path)
+        plate_model = load_detector(
+            plate_model_path,
+            imgsz=getattr(config, "RKNN_IMGSZ", 640),
+            conf=args.plate_conf,
+            npu_cores=args.npu_cores,
+            num_classes=1,
+        )
     else:
         logger.warning("No plate model — using the classic OpenCV localizer (less reliable). "
                        "Pass --plate-model PATH or drop models/license_plate_detector.pt for best results.")

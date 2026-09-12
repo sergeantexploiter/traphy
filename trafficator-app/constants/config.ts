@@ -13,7 +13,7 @@ import Constants from 'expo-constants';
  *
  *   "expo": { "extra": { "apiBaseUrl": "http://192.168.1.50:5001" } }
  */
-const FALLBACK_API_BASE_URL = 'http://192.168.1.50:5001';
+const FALLBACK_API_BASE_URL = 'http://192.168.0.134:8080';
 
 const extra =
   (Constants.expoConfig?.extra as Record<string, unknown> | undefined) ?? {};

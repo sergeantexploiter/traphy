@@ -340,10 +340,16 @@ CAMERA_RECORD_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 # All are overridable via CLI flags; the script reads them with getattr fallbacks.
 # -----------------------------------------------------------------------------
 # Vehicle detector weights (shared with lane_detector.py).
+# Use a .rknn / .rnn path to run on the Orange Pi RK3588 6 TOPS NPU.
+# If YOLO_MODEL is still a .pt name and a sibling .rknn exists, the NPU file is preferred.
 YOLO_MODEL = "yolov8n.pt"
-# Dedicated YOLOv8 license-plate weights. None => auto-detect models/license_plate_detector.pt,
-# else fall back to the classic OpenCV localizer (less reliable).
+# Dedicated YOLOv8 license-plate weights. None => auto-detect
+# models/license_plate_detector.rknn (or .pt), else the classic OpenCV localizer.
 PLATE_MODEL = None
+# RKNN / NPU (Orange Pi 5 family — RK3588, 6 TOPS). Used by rknn_export.py and load_detector().
+RKNN_TARGET = "rk3588"
+RKNN_IMGSZ = 640
+RKNN_NPU_CORES = "0_1_2"  # all 3 NPU cores; pin 0 / 1 / 2 if you run several detectors
 PLATE_DETECT_CONF = 0.25          # plate-detection confidence threshold (model only)
 PLATE_OCR_ENGINE = "easyocr"      # "easyocr" | "tesseract" | "none" (localize only)
 PLATE_OCR_LANGS = ["en"]          # EasyOCR languages
