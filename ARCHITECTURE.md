@@ -14,7 +14,7 @@ This document describes the full **smart-traffic-light** system: purpose, compon
 6. [Operator dashboard](#operator-dashboard)
 7. [Camera streaming](#camera-streaming)
 8. [MQTT messaging](#mqtt-messaging)
-9. [Vehicle CV prototype](#vehicle-cv-prototype)
+9. [Vehicle CV](#vehicle-cv)
 10. [Configuration](#configuration)
 11. [Typical deployment](#typical-deployment)
 12. [Project layout](#project-layout)
@@ -31,7 +31,9 @@ A **distributed adaptive traffic-light system** for a school-area intersection (
 3. Exposes an **operator dashboard** (live lamp state, manual control, geofenced lane status)
 4. Optionally streams **RTSP cameras** to the browser and records segments to disk
 
-A separate **`vehicle/`** directory contains a **YOLOv8 + SORT** pipeline for offline video analysis. It is **not connected to MQTT** in this repository; edge detectors or a future bridge would publish counts in production.
+Production edge counts come from **`src/lane_detector.py`** (YOLOv8 or RKNN on an Orange Pi NPU), which publishes MQTT. A separate **`vehicle/`** directory is an offline YOLOv8 + SORT prototype and does **not** publish MQTT.
+
+Install, CLI, and a full config reference: **[`README.md`](README.md)** (MIT licensed).
 
 ---
 
@@ -41,7 +43,7 @@ A separate **`vehicle/`** directory contains a **YOLOv8 + SORT** pipeline for of
 flowchart TB
     subgraph detectors [Count publishers]
         Sim[simulator.py]
-        Edge[Edge detectors - external]
+        Edge[lane_detector.py - Orange Pi NPU]
     end
 
     Broker[(Mosquitto MQTT)]
@@ -76,7 +78,10 @@ flowchart TB
 | Dashboard | `src/dashboard.py`, `src/static/` | Operator UI and public live view |
 | Cameras | `src/camera_app.py`, `src/camera_retention.py` | RTSP → MJPEG, optional recording |
 | Testing | `src/simulator.py` | Synthetic MQTT counts |
+| Edge CV | `src/lane_detector.py`, `src/rknn_detector.py` | Live counts → MQTT (`.pt` or `.rknn`) |
+| ANPR | `src/plate_reader.py` | Plates only — no MQTT |
 | CV prototype | `vehicle/main.py` | Offline detection (not in production path) |
+| Mobile | `trafficator-app/` | GPS lane + `/api/state` |
 
 **Central configuration:** `src/config.py` — shared by coordinator, simulator, dashboard, relay servers, and camera app.
 
@@ -161,7 +166,7 @@ For a given `seq1` / `seq2` / `seq3`:
 1. **Green** — apply `green_keys` for this phase; others implied red via batch off
 2. **Duration**
    - **Auto:** `COORDINATOR_GREEN_MIN` + density × `COORDINATOR_GREEN_DENSITY_FACTOR`, capped between min/max; can extend while vehicles arrive
-   - **Manual:** `MANUAL_GREEN_DURATION` (default 30s); same-phase trigger extends green
+   - **Manual:** `MANUAL_GREEN_DURATION` (default 90s); same-phase trigger extends green
 3. **Yellow** — `COORDINATOR_YELLOW_DURATION` (default 3s)
 4. **Red gap** — `COORDINATOR_ALL_OFF_GAP` (default 4s)
 5. **Wait for narrow centre** — until `narrow_centre_vehicle_count == 0` or `COORDINATOR_NARROW_CENTRE_MAX_WAIT` (default 120s)
@@ -302,24 +307,11 @@ camera_app  →  MJPEG  →  browser (monitoring only; not used for phase logic)
 
 ---
 
-## Vehicle CV prototype
+## Vehicle CV
 
-**Directory:** `vehicle/`
+**Production edge publisher:** `src/lane_detector.py` — YOLO/RKNN + SORT, publishes `<lane>_vehicle_count` on `MQTT_TOPIC`. See the README for CLI flags and the 3× Orange Pi 5 Plus split.
 
-Documented in `README.md` for local development only.
-
-| File | Role |
-|------|------|
-| `vehicle/main.py` | YOLOv8 + SORT pipeline |
-| `vehicle/config.py` | Video source, ROI, count line, stop line, feature flags |
-| `vehicle/calibrate_roi.py` | Interactive ROI/line calibration |
-| `vehicle/sort_tracker.py` | SORT tracker |
-
-**Features (all toggleable in config):** detection, tracking, lane ROI, counting, speed, stop-line / red-light violation, optional EasyOCR plates.
-
-**Dependencies:** `requirements.txt` (ultralytics, opencv, filterpy, scipy, optional easyocr).
-
-**Not in production path:** no MQTT publish in this repo. Use recorded footage under `videos/` to tune geometry before building an edge publisher.
+**Offline prototype:** `vehicle/` (`main.py`, `config.py`, `calibrate_roi.py`, `sort_tracker.py`). Toggleable detection, tracking, ROI, counting, speed, stop-line / red-light violation, optional EasyOCR. **No MQTT.**
 
 ---
 
@@ -359,7 +351,7 @@ Documented in `README.md` for local development only.
 2. **Coordinator:** `cd src && python cordinator.py` (or equivalent service unit)
 3. **Camera app (optional):** `python -m src.camera_app` from project root
 4. **Four Raspberry Pis:** each runs `relay_server.py` with TLS certs matching coordinator trust settings (`RELAY_VERIFY_SSL`)
-5. **Count publishers:** edge processes at each approach (or `python src/simulator.py` for development)
+5. **Count publishers:** `python3 src/lane_detector.py --lane … --rtsp …` on each approach (or `python3 src/simulator.py` for development)
 6. **Recording retention (optional):** cron `python -m src.camera_retention` or daemon mode
 7. **Vehicle prototype (dev only):** `python vehicle/main.py` from project root with venv + `requirements.txt`
 
@@ -373,42 +365,42 @@ Documented in `README.md` for local development only.
 
 ```text
 smart-traffic-light/
+├── LICENSE
+├── README.md                # Install, use, full config reference
 ├── ARCHITECTURE.md          # This document
-├── README.md                # Vehicle detection quick start (partial project docs)
-├── requirements.txt         # vehicle/ CV dependencies
-├── camera.txt               # Scratchpad: RTSP URLs per site (not loaded by code)
-├── videos/                  # Sample footage for vehicle/ pipeline
-├── vehicle/
-│   ├── config.py
-│   ├── main.py
-│   ├── calibrate_roi.py
-│   └── sort_tracker.py
+├── requirements.txt
+├── camera.txt               # Scratchpad RTSP notes (not loaded by code)
+├── models/                  # YOLO / plate .pt .onnx .rknn
+├── videos/
+├── vehicle/                 # Offline CV prototype
+├── trafficator-app/         # Expo mobile lane-status
 └── src/
-    ├── config.py            # Shared production configuration
-    ├── cordinator.py        # Main coordinator + MQTT + phase logic
-    ├── dashboard.py         # Flask operator / live UI
-    ├── camera_app.py        # RTSP → MJPEG (+ optional record)
-    ├── camera_retention.py  # Old recording cleanup
-    ├── relay_server.py      # Pi GPIO + signed HTTP API
-    ├── simulator.py         # MQTT test traffic
-    ├── pub.py, sub.py, mqtt_setup.py
-    ├── test_relay.py
-    ├── certs/               # private.pem, public.pem, TLS for Pis
+    ├── config.py
+    ├── cordinator.py
+    ├── dashboard.py
+    ├── camera_app.py
+    ├── camera_retention.py
+    ├── relay_server.py
+    ├── lane_detector.py
+    ├── plate_reader.py
+    ├── rknn_detector.py
+    ├── rknn_export.py
+    ├── simulator.py
+    ├── pub.py, sub.py, mqtt_setup.py, test_relay.py
+    ├── lane_points/
+    ├── certs/
     └── static/
-        ├── dashboard.html
-        └── lane-status.html
 ```
 
 ---
 
 ## Gaps and notes
 
-1. **README scope** — Root `README.md` describes only `vehicle/`; production documentation is this file plus inline comments in `src/`.
-2. **Detection → MQTT** — No in-repo bridge from `vehicle/main.py` to `vehicle_counts`; production assumes external edge publishers.
-3. **Filename** — Coordinator module is `cordinator.py` (typo).
-4. **Relay mapping** — Verify `RELAY_MAPPINGS` against physical wiring (some pole_4 / pole_5 entries share relay IDs on `pi3` in config).
-5. **Secrets** — `config.py` and `camera.txt` may contain live credentials; rotate and use env vars for production.
-6. **Ports on macOS** — Use dashboard port 5001+ if 5000 is taken by AirPlay (noted in `config.py`).
+1. **Filename** — Coordinator module is `cordinator.py` (typo).
+2. **Relay mapping** — Verify `RELAY_MAPPINGS` against physical wiring (some pole_4 / pole_5 entries share relay IDs on `pi3` in config).
+3. **Secrets** — `config.py` and `camera.txt` may contain live credentials; rotate and use env vars (`MQTT_USERNAME`, `MQTT_PASSWORD`) in production.
+4. **Ports on macOS** — Use dashboard port 5001+ if 5000 is taken by AirPlay (noted in `config.py`).
+5. **`vehicle/main.py`** still does not publish MQTT; production counts come from `lane_detector.py`.
 
 ---
 
@@ -420,9 +412,9 @@ smart-traffic-light/
 | `cordinator.py` | Coordinator PC/Pi | Dashboard: 5000 |
 | `camera_app.py` | Same or other | 5001 |
 | `relay_server.py` | Each of 4 Pis | 8080 HTTPS |
-| Edge detectors | Per camera / approach | (publish only) |
+| `lane_detector.py` | Orange Pi 5 Plus (typically 3 boards, 6 streams) | MQTT publish only |
 | `simulator.py` | Dev machine | (publish only) |
 
 ---
 
-*Last updated to reflect the repository structure and behavior of the coordinator, relay, dashboard, camera, and vehicle components.*
+*Last updated to match README.md: lane_detector / RKNN, plate reader, trafficator-app, and the current config defaults.*
